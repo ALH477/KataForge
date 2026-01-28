@@ -4,8 +4,6 @@
 
 Advanced AI-powered system for martial arts technique preservation, analysis, and coaching, with multi-GPU support (ROCm, CUDA, Vulkan).
 
-# (DISCLAIMER!!!!!!!!!!!! NOT OPEN SOURCE! source avaliable) #
-
 ## Quick Start
 
 1. Enter the development environment:
@@ -275,13 +273,22 @@ nix develop .#vulkan # Vulkan shell
 
 ## License
 
-KataForge is released under the KataForge License (based on Elastic License v2 / ELv2).
+**KataForge is source-available software (not OSI-approved open source).**
 
-This source-available license permits private self-hosting, modification, and redistribution for personal, dojo, coaching, and small-group use, while prohibiting offering the software (or derivatives) as a hosted or managed service to third parties.
+It is released under the KataForge License (based on Elastic License v2 / ELv2).
+
+This license permits:
+- Private self-hosting on your own hardware/servers for personal, dojo, coaching, research, or small-group commercial use
+- Modification, bug fixes, and technique additions (with verified data ownership)
+- Redistribution of modifications (with copyright and license notices preserved)
+
+It prohibits:
+- Offering KataForge (or modified versions) as a hosted, managed, or SaaS service to third parties
+- Circumventing any license protections or removing notices
 
 Full license text: [LICENSE](./LICENSE)
 
-For commercial hosted offerings, integrations, or licensing exceptions, contact: licensing@demod.llc
+For commercial hosted offerings, integrations, exceptions, or questions, contact: licensing@demod.llc
 
 Contributions (bug fixes, GPU improvements, technique additions with verified data ownership) are welcome via pull requests.
 
