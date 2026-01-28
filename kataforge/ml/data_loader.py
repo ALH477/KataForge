@@ -1,0 +1,290 @@
+"""
+KataForge - Adaptive Martial Arts Analysis System
+Copyright © 2026 DeMoD LLC. All rights reserved.
+
+This file is part of KataForge, released under the KataForge License
+(based on Elastic License v2). See LICENSE in the project root for full terms.
+
+SPDX-License-Identifier: Elastic-2.0
+
+Description:
+    [Brief module description – please edit]
+
+Usage notes:
+    - Private self-hosting, dojo use, and modifications are permitted.
+    - Offering as a hosted/managed service to third parties is prohibited
+      without explicit written permission from DeMoD LLC.
+"""
+
+"""Training data loader for martial arts techniques."""
+
+try:
+    import torch
+    from torch.utils.data import Dataset, DataLoader
+    import numpy as np
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    Dataset = object
+    DataLoader = None
+    np = None
+
+from pathlib import Path
+import json
+from typing import Dict, List, Tuple, Optional
+import random
+
+from ..core.error_handling import ProcessingError
+
+
+class MartialArtsDataset(Dataset):
+    """Dataset for martial arts technique videos."""
+    
+    def __init__(self,
+                data_dir: str,
+                coaches: Optional[List[str]] = None,
+                techniques: Optional[List[str]] = None,
+                sequence_length: int = 32,
+                augment: bool = True,
+                coach_to_idx: Optional[Dict[str, int]] = None,
+                technique_to_idx: Optional[Dict[str, int]] = None):
+        """
+        Args:
+            data_dir: Root directory with structure:
+                data_dir/
+                    coach_id/
+                        technique_name/
+                            video_001.json
+                            video_002.json
+            coaches: List of coach IDs to include (None = all)
+            techniques: List of techniques to include (None = all)
+            sequence_length: Number of frames per sequence
+            augment: Apply data augmentation
+        """
+        if not TORCH_AVAILABLE:
+            raise ProcessingError("PyTorch is required for data loading")
+            
+        self.data_dir = Path(data_dir)
+        self.sequence_length = sequence_length
+        self.augment = augment
+        
+        # Build indices
+        self.coach_to_idx = coach_to_idx or {}
+        self.technique_to_idx = technique_to_idx or {}
+        
+        # Load all data samples
+        self.samples = self._load_samples(coaches, techniques)
+        
+        print(f"Loaded dataset:")
+        print(f"  Total samples: {len(self.samples)}")
+        print(f"  Coaches: {len(self.coach_to_idx)}")
+        print(f"  Techniques: {len(self.technique_to_idx)}")
+    
+    def _load_samples(self, coaches, techniques) -> List[Dict]:
+        """Load all pose data samples"""
+        samples = []
+        
+        for coach_dir in self.data_dir.iterdir():
+            if not coach_dir.is_dir():
+                continue
+            
+            coach_id = coach_dir.name
+            
+            # Filter coaches
+            if coaches and coach_id not in coaches:
+                continue
+            
+            # Add to coach index
+            if coach_id not in self.coach_to_idx:
+                self.coach_to_idx[coach_id] = len(self.coach_to_idx)
+            
+            for technique_dir in coach_dir.iterdir():
+                if not technique_dir.is_dir():
+                    continue
+                
+                technique = technique_dir.name
+                
+                # Filter techniques
+                if techniques and technique not in techniques:
+                    continue
+                
+                # Add to technique index
+                if technique not in self.technique_to_idx:
+                    self.technique_to_idx[technique] = len(self.technique_to_idx)
+                
+                # Load all pose files for this technique
+                for pose_file in technique_dir.glob("*.json"):
+                    samples.append({
+                        'pose_file': pose_file,
+                        'coach_id': coach_id,
+                        'technique': technique,
+                        'coach_idx': self.coach_to_idx[coach_id],
+                        'technique_idx': self.technique_to_idx[technique],
+                    })
+        
+        return samples
+    
+    def __len__(self) -> int:
+        return len(self.samples)
+    
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        """Get a single training sample"""
+        sample = self.samples[idx]
+        
+        # Load pose data
+        with open(sample['pose_file']) as f:
+            pose_data = json.load(f)
+        
+        poses = np.array(pose_data['poses'])  # [num_frames, 33, 4]
+        
+        # Extract sequence of specified length
+        sequence = self._extract_sequence(poses)
+        
+        # Apply augmentation
+        if self.augment:
+            sequence = self._augment_sequence(sequence)
+        
+        return {
+            'poses': torch.FloatTensor(sequence),  # [seq_len, 33, 4]
+            'coach_idx': torch.LongTensor([sample['coach_idx']]),
+            'technique_idx': torch.LongTensor([sample['technique_idx']]),
+            'coach_id': sample['coach_id'],
+            'technique': sample['technique'],
+        }
+    
+    def _extract_sequence(self, poses: np.ndarray) -> np.ndarray:
+        """Extract sequence of specified length"""
+        num_frames = len(poses)
+        
+        if num_frames >= self.sequence_length:
+            # Random crop during training
+            if self.augment:
+                start_idx = random.randint(0, num_frames - self.sequence_length)
+            else:
+                # Center crop for validation
+                start_idx = (num_frames - self.sequence_length) // 2
+            
+            return poses[start_idx:start_idx + self.sequence_length]
+        else:
+            # Pad if too short
+            padding = np.zeros((self.sequence_length - num_frames, 33, 4))
+            return np.concatenate([poses, padding], axis=0)
+    
+    def _augment_sequence(self, sequence: np.ndarray) -> np.ndarray:
+        """Apply data augmentation"""
+        # Temporal jittering (random speed variation)
+        if random.random() < 0.5:
+            speed_factor = random.uniform(0.8, 1.2)
+            indices = np.linspace(0, len(sequence) - 1, 
+                                int(len(sequence) * speed_factor))
+            indices = np.clip(indices, 0, len(sequence) - 1).astype(int)
+            sequence = sequence[indices]
+            
+            # Resize back to sequence_length
+            if len(sequence) != self.sequence_length:
+                indices = np.linspace(0, len(sequence) - 1, self.sequence_length)
+                indices = np.clip(indices, 0, len(sequence) - 1).astype(int)
+                sequence = sequence[indices]
+        
+        # Spatial augmentation (small random translations)
+        if random.random() < 0.3:
+            translation = np.random.randn(3) * 0.05  # 5cm random translation
+            sequence[:, :, :3] += translation
+        
+        # Random horizontal flip (for symmetric techniques)
+        if random.random() < 0.3:
+            sequence = self._horizontal_flip(sequence)
+        
+        # Add small Gaussian noise
+        if random.random() < 0.3:
+            noise = np.random.randn(*sequence.shape) * 0.01
+            sequence = sequence + noise
+        
+        return sequence
+    
+    def _horizontal_flip(self, sequence: np.ndarray) -> np.ndarray:
+        """Flip left-right (swap left/right landmarks)"""
+        flipped = sequence.copy()
+        
+        # Flip x coordinate
+        flipped[:, :, 0] *= -1
+        
+        # Swap left-right landmark pairs
+        swap_pairs = [
+            (1, 4), (2, 5), (3, 6),  # eyes
+            (7, 8),  # ears
+            (9, 10),  # mouth
+            (11, 12),  # shoulders
+            (13, 14),  # elbows
+            (15, 16),  # wrists
+            (17, 18),  # pinkies
+            (19, 20),  # indices
+            (21, 22),  # thumbs
+            (23, 24),  # hips
+            (25, 26),  # knees
+            (27, 28),  # ankles
+            (29, 30),  # heels
+            (31, 32),  # foot indices
+        ]
+        
+        for left, right in swap_pairs:
+            flipped[:, [left, right]] = flipped[:, [right, left]]
+        
+        return flipped
+    
+    def get_coach_profile(self, coach_id: str, profile_dir: str = "./profiles") -> Dict:
+        """Load coach profile for conditioning"""
+        profile_path = Path(profile_dir) / f"{coach_id}.json"
+        
+        if not profile_path.exists():
+            return {}
+        
+        with open(profile_path) as f:
+            return json.load(f)
+
+
+def create_data_loaders(data_dir: str,
+                       batch_size: int = 16,
+                       val_split: float = 0.2,
+                       num_workers: int = 4,
+                       **dataset_kwargs) -> Tuple[DataLoader, DataLoader]:
+    """
+    Create train and validation data loaders
+    
+    Returns:
+        (train_loader, val_loader)
+    """
+    if not TORCH_AVAILABLE:
+        raise ProcessingError("PyTorch is required for data loading")
+        
+    # Load full dataset
+    full_dataset = MartialArtsDataset(data_dir, **dataset_kwargs)
+    
+    # Split train/val
+    dataset_size = len(full_dataset)
+    val_size = int(dataset_size * val_split)
+    train_size = dataset_size - val_size
+    
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        full_dataset, [train_size, val_size]
+    )
+    
+    # Create loaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    
+    return train_loader, val_loader

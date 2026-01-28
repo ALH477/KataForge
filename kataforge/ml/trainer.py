@@ -1,0 +1,833 @@
+"""
+KataForge - Adaptive Martial Arts Analysis System
+Copyright © 2026 DeMoD LLC. All rights reserved.
+
+This file is part of KataForge, released under the KataForge License
+(based on Elastic License v2). See LICENSE in the project root for full terms.
+
+SPDX-License-Identifier: Elastic-2.0
+
+Description:
+    [Brief module description – please edit]
+
+Usage notes:
+    - Private self-hosting, dojo use, and modifications are permitted.
+    - Offering as a hosted/managed service to third parties is prohibited
+      without explicit written permission from DeMoD LLC.
+"""
+
+"""Training orchestrator for martial arts models.
+
+Features:
+- Multi-task learning (classification + biomechanics regression)
+- Learning rate scheduling with warmup
+- Early stopping with patience
+- Gradient clipping for stability
+- TensorBoard logging
+- Checkpoint management
+"""
+
+try:
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingWarmRestarts
+    from torch.utils.tensorboard import SummaryWriter
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    nn = None
+    optim = None
+    OneCycleLR = None
+    CosineAnnealingWarmRestarts = None
+    SummaryWriter = None
+
+from pathlib import Path
+import json
+import time
+import logging
+from typing import Dict, Optional, List, Callable, Any
+from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TrainingConfig:
+    """Configuration for training."""
+    learning_rate: float = 1e-3
+    min_learning_rate: float = 1e-6
+    weight_decay: float = 1e-4
+    epochs: int = 100
+    batch_size: int = 16
+    
+    # Loss weights
+    classification_weight: float = 1.0
+    regression_weight: float = 0.5
+    
+    # Early stopping
+    patience: int = 15
+    min_delta: float = 1e-4
+    
+    # Gradient clipping
+    max_grad_norm: float = 1.0
+    
+    # LR scheduler
+    scheduler_type: str = "cosine"  # "cosine", "onecycle", "none"
+    warmup_epochs: int = 5
+    
+    # Checkpointing
+    checkpoint_dir: str = "./checkpoints"
+    save_best_only: bool = True
+    
+    # Logging
+    log_dir: str = "./logs"
+    log_every_n_steps: int = 10
+
+
+class MultiTaskLoss(nn.Module):
+    """Multi-task loss for classification and biomechanics regression.
+    
+    Combines cross-entropy for technique classification with MSE for
+    biomechanics regression. Supports uncertainty weighting.
+    """
+    
+    def __init__(self, 
+                 class_weight: float = 1.0, 
+                 reg_weight: float = 0.5,
+                 num_classes: int = 50,
+                 class_weights: Optional[torch.Tensor] = None,
+                 use_uncertainty_weighting: bool = False):
+        """Initialize multi-task loss.
+        
+        Args:
+            class_weight: Weight for classification loss
+            reg_weight: Weight for regression loss
+            num_classes: Number of technique classes
+            class_weights: Per-class weights for imbalanced datasets
+            use_uncertainty_weighting: Learn loss weights automatically
+        """
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is required")
+        super().__init__()
+        
+        self.class_weight = class_weight
+        self.reg_weight = reg_weight
+        
+        self.class_criterion = nn.CrossEntropyLoss(weight=class_weights)
+        self.reg_criterion = nn.SmoothL1Loss()  # More robust than MSE
+        
+        # Learnable uncertainty weights (Kendall et al., 2018)
+        self.use_uncertainty_weighting = use_uncertainty_weighting
+        if use_uncertainty_weighting:
+            self.log_var_class = nn.Parameter(torch.zeros(1))
+            self.log_var_reg = nn.Parameter(torch.zeros(1))
+
+    def forward(self, 
+                outputs: tuple,
+                targets: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Compute multi-task loss.
+        
+        Args:
+            outputs: (classification_logits, biomechanics_predictions)
+            targets: Dict with 'technique' and 'biomechanics' tensors
+            
+        Returns:
+            Dict with total loss and individual loss components
+        """
+        cls_out, reg_out = outputs
+        
+        class_loss = self.class_criterion(cls_out, targets['technique'])
+        reg_loss = self.reg_criterion(reg_out, targets['biomechanics'])
+        
+        if self.use_uncertainty_weighting:
+            # Uncertainty weighting
+            precision_class = torch.exp(-self.log_var_class)
+            precision_reg = torch.exp(-self.log_var_reg)
+            
+            total_loss = (
+                precision_class * class_loss + self.log_var_class +
+                precision_reg * reg_loss + self.log_var_reg
+            )
+        else:
+            total_loss = self.class_weight * class_loss + self.reg_weight * reg_loss
+        
+        return {
+            'total': total_loss,
+            'classification': class_loss,
+            'regression': reg_loss,
+        }
+
+
+class FormAssessmentLoss(nn.Module):
+    """Loss function for FormAssessor model.
+    
+    Combines losses for aspect scores and overall score.
+    """
+    
+    def __init__(self, aspect_weight: float = 1.0, overall_weight: float = 1.0):
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is required")
+        super().__init__()
+        
+        self.aspect_weight = aspect_weight
+        self.overall_weight = overall_weight
+        self.criterion = nn.SmoothL1Loss()
+    
+    def forward(self, 
+                outputs: Dict[str, torch.Tensor],
+                targets: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Compute assessment loss.
+        
+        Args:
+            outputs: Dict from FormAssessor.forward()
+            targets: Dict with 'aspect_scores' and 'overall_score'
+            
+        Returns:
+            Dict with total loss and components
+        """
+        aspect_loss = self.criterion(outputs['aspect_scores'], targets['aspect_scores'])
+        overall_loss = self.criterion(outputs['overall_score'], targets['overall_score'])
+        
+        total_loss = self.aspect_weight * aspect_loss + self.overall_weight * overall_loss
+        
+        return {
+            'total': total_loss,
+            'aspect': aspect_loss,
+            'overall': overall_loss,
+        }
+
+
+class EarlyStopping:
+    """Early stopping handler with patience and delta threshold."""
+    
+    def __init__(self, 
+                 patience: int = 10, 
+                 min_delta: float = 1e-4,
+                 mode: str = 'min'):
+        """Initialize early stopping.
+        
+        Args:
+            patience: Number of epochs to wait for improvement
+            min_delta: Minimum change to qualify as improvement
+            mode: 'min' for loss, 'max' for accuracy
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.mode = mode
+        self.counter = 0
+        self.best_score = None
+        self.should_stop = False
+        self.best_epoch = 0
+    
+    def __call__(self, score: float, epoch: int) -> bool:
+        """Check if training should stop.
+        
+        Args:
+            score: Current metric value
+            epoch: Current epoch number
+            
+        Returns:
+            True if training should stop
+        """
+        if self.best_score is None:
+            self.best_score = score
+            self.best_epoch = epoch
+            return False
+        
+        if self.mode == 'min':
+            improved = score < self.best_score - self.min_delta
+        else:
+            improved = score > self.best_score + self.min_delta
+        
+        if improved:
+            self.best_score = score
+            self.best_epoch = epoch
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.should_stop = True
+                logger.info(f"Early stopping triggered at epoch {epoch}. "
+                           f"Best score: {self.best_score:.4f} at epoch {self.best_epoch}")
+        
+        return self.should_stop
+
+
+class Trainer:
+    """Orchestrates model training with validation and checkpointing.
+    
+    Features:
+    - Learning rate scheduling (OneCycle, Cosine)
+    - Early stopping
+    - Gradient clipping
+    - TensorBoard logging
+    - Best model checkpointing
+    """
+    
+    def __init__(self, 
+                 model: nn.Module,
+                 train_loader: torch.utils.data.DataLoader,
+                 val_loader: torch.utils.data.DataLoader,
+                 config: Optional[TrainingConfig] = None,
+                 criterion: Optional[nn.Module] = None,
+                 device: Optional[str] = None):
+        """Initialize trainer.
+        
+        Args:
+            model: PyTorch model to train
+            train_loader: Training data loader
+            val_loader: Validation data loader
+            config: Training configuration
+            criterion: Loss function (default: MultiTaskLoss)
+            device: Device to train on ('cpu', 'cuda', 'mps')
+        """
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is required for training")
+        
+        self.config = config or TrainingConfig()
+        self.model = model
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        
+        # Set device
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = torch.device('cuda')
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                self.device = torch.device('mps')
+            else:
+                self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(device)
+        
+        logger.info(f"Training on device: {self.device}")
+        
+        # Move model to device
+        self.model.to(self.device)
+        
+        # Setup loss function
+        self.criterion = criterion or MultiTaskLoss(
+            class_weight=self.config.classification_weight,
+            reg_weight=self.config.regression_weight,
+        )
+        
+        # Setup optimizer with weight decay
+        self.optimizer = optim.AdamW(
+            self.model.parameters(), 
+            lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay
+        )
+        
+        # Setup learning rate scheduler
+        self.scheduler = self._create_scheduler()
+        
+        # Early stopping
+        self.early_stopping = EarlyStopping(
+            patience=self.config.patience,
+            min_delta=self.config.min_delta,
+            mode='min'
+        )
+        
+        # Setup logging
+        self.writer = SummaryWriter(log_dir=self.config.log_dir)
+        self.global_step = 0
+        
+        # Best model tracking
+        self.best_val_loss = float('inf')
+        self.best_val_accuracy = 0.0
+    
+    def _create_scheduler(self):
+        """Create learning rate scheduler."""
+        if self.config.scheduler_type == "none":
+            return None
+        
+        total_steps = len(self.train_loader) * self.config.epochs
+        
+        if self.config.scheduler_type == "onecycle":
+            return OneCycleLR(
+                self.optimizer,
+                max_lr=self.config.learning_rate,
+                total_steps=total_steps,
+                pct_start=self.config.warmup_epochs / self.config.epochs,
+                anneal_strategy='cos',
+                final_div_factor=self.config.learning_rate / self.config.min_learning_rate
+            )
+        elif self.config.scheduler_type == "cosine":
+            return CosineAnnealingWarmRestarts(
+                self.optimizer,
+                T_0=10,
+                T_mult=2,
+                eta_min=self.config.min_learning_rate
+            )
+        else:
+            logger.warning(f"Unknown scheduler type: {self.config.scheduler_type}")
+            return None
+    
+    def train_epoch(self) -> Dict[str, float]:
+        """Train for one epoch.
+        
+        Returns:
+            Dict with training metrics
+        """
+        self.model.train()
+        total_loss = 0.0
+        total_class_loss = 0.0
+        total_reg_loss = 0.0
+        correct = 0
+        total = 0
+        num_batches = 0
+        
+        for batch_idx, batch in enumerate(self.train_loader):
+            # Move batch to device
+            poses = batch['poses'].to(self.device)
+            coach_idx = batch['coach_idx'].to(self.device).squeeze()
+            technique_idx = batch['technique_idx'].to(self.device).squeeze()
+            
+            # Get biomechanics if available, otherwise use zeros
+            if 'biomechanics' in batch:
+                biomechanics = batch['biomechanics'].to(self.device)
+            else:
+                biomechanics = torch.zeros(poses.size(0), 6, device=self.device)
+            
+            targets = {
+                'technique': technique_idx,
+                'biomechanics': biomechanics,
+            }
+            
+            # Forward pass
+            self.optimizer.zero_grad()
+            outputs = self.model(poses, coach_idx, technique_idx)
+            
+            # Compute loss
+            loss_dict = self.criterion(outputs, targets)
+            loss = loss_dict['total']
+            
+            # Backward pass with gradient clipping
+            loss.backward()
+            if self.config.max_grad_norm > 0:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), 
+                    self.config.max_grad_norm
+                )
+            self.optimizer.step()
+            
+            # Update scheduler (for OneCycleLR)
+            if self.scheduler is not None and self.config.scheduler_type == "onecycle":
+                self.scheduler.step()
+            
+            # Track metrics
+            total_loss += loss.item()
+            total_class_loss += loss_dict['classification'].item()
+            total_reg_loss += loss_dict['regression'].item()
+            
+            # Calculate accuracy
+            cls_out = outputs[0]
+            _, predicted = torch.max(cls_out, 1)
+            total += technique_idx.size(0)
+            correct += (predicted == technique_idx).sum().item()
+            
+            num_batches += 1
+            
+            # Log step metrics
+            if self.global_step % self.config.log_every_n_steps == 0:
+                self.writer.add_scalar('Train/Loss', loss.item(), self.global_step)
+                self.writer.add_scalar('Train/Classification_Loss', 
+                                      loss_dict['classification'].item(), self.global_step)
+                self.writer.add_scalar('Train/Regression_Loss',
+                                      loss_dict['regression'].item(), self.global_step)
+                if self.scheduler:
+                    self.writer.add_scalar('Train/LR', 
+                                          self.optimizer.param_groups[0]['lr'], 
+                                          self.global_step)
+            
+            self.global_step += 1
+        
+        # Update scheduler (for CosineAnnealing)
+        if self.scheduler is not None and self.config.scheduler_type == "cosine":
+            self.scheduler.step()
+        
+        avg_loss = total_loss / max(num_batches, 1)
+        avg_class_loss = total_class_loss / max(num_batches, 1)
+        avg_reg_loss = total_reg_loss / max(num_batches, 1)
+        accuracy = 100 * correct / max(total, 1)
+        
+        return {
+            'loss': avg_loss,
+            'classification_loss': avg_class_loss,
+            'regression_loss': avg_reg_loss,
+            'accuracy': accuracy,
+        }
+    
+    def validate(self) -> Dict[str, float]:
+        """Validate model on validation set.
+        
+        Returns:
+            Dictionary with validation metrics
+        """
+        self.model.eval()
+        total_loss = 0.0
+        total_class_loss = 0.0
+        total_reg_loss = 0.0
+        correct = 0
+        total = 0
+        num_batches = 0
+        
+        with torch.no_grad():
+            for batch in self.val_loader:
+                # Move batch to device
+                poses = batch['poses'].to(self.device)
+                coach_idx = batch['coach_idx'].to(self.device).squeeze()
+                technique_idx = batch['technique_idx'].to(self.device).squeeze()
+                
+                # Get biomechanics if available
+                if 'biomechanics' in batch:
+                    biomechanics = batch['biomechanics'].to(self.device)
+                else:
+                    biomechanics = torch.zeros(poses.size(0), 6, device=self.device)
+                
+                targets = {
+                    'technique': technique_idx,
+                    'biomechanics': biomechanics,
+                }
+                
+                # Forward pass
+                outputs = self.model(poses, coach_idx, technique_idx)
+                
+                # Compute loss
+                loss_dict = self.criterion(outputs, targets)
+                
+                # Track metrics
+                total_loss += loss_dict['total'].item()
+                total_class_loss += loss_dict['classification'].item()
+                total_reg_loss += loss_dict['regression'].item()
+                
+                # Calculate accuracy
+                cls_out = outputs[0]
+                _, predicted = torch.max(cls_out, 1)
+                total += technique_idx.size(0)
+                correct += (predicted == technique_idx).sum().item()
+                
+                num_batches += 1
+        
+        avg_loss = total_loss / max(num_batches, 1)
+        avg_class_loss = total_class_loss / max(num_batches, 1)
+        avg_reg_loss = total_reg_loss / max(num_batches, 1)
+        accuracy = 100 * correct / max(total, 1)
+        
+        return {
+            'loss': avg_loss,
+            'classification_loss': avg_class_loss,
+            'regression_loss': avg_reg_loss,
+            'accuracy': accuracy,
+        }
+    
+    def train(self, epochs: Optional[int] = None) -> Dict[str, List[float]]:
+        """Train model for specified number of epochs.
+        
+        Args:
+            epochs: Number of epochs (overrides config if provided)
+            
+        Returns:
+            Dictionary with training history
+        """
+        epochs = epochs or self.config.epochs
+        
+        history = {
+            'train_loss': [],
+            'train_accuracy': [],
+            'val_loss': [],
+            'val_accuracy': [],
+            'learning_rate': [],
+        }
+        
+        checkpoint_path = Path(self.config.checkpoint_dir)
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Starting training on {self.device}")
+        logger.info(f"Training for {epochs} epochs")
+        logger.info(f"Training samples: {len(self.train_loader.dataset)}")
+        logger.info(f"Validation samples: {len(self.val_loader.dataset)}")
+        
+        for epoch in range(epochs):
+            start_time = time.time()
+            
+            # Train epoch
+            train_metrics = self.train_epoch()
+            
+            # Validate
+            val_metrics = self.validate()
+            
+            # Get current learning rate
+            current_lr = self.optimizer.param_groups[0]['lr']
+            
+            # Log epoch metrics
+            self.writer.add_scalar('Epoch/Train_Loss', train_metrics['loss'], epoch)
+            self.writer.add_scalar('Epoch/Train_Accuracy', train_metrics['accuracy'], epoch)
+            self.writer.add_scalar('Epoch/Val_Loss', val_metrics['loss'], epoch)
+            self.writer.add_scalar('Epoch/Val_Accuracy', val_metrics['accuracy'], epoch)
+            self.writer.add_scalar('Epoch/Learning_Rate', current_lr, epoch)
+            
+            # Store history
+            history['train_loss'].append(train_metrics['loss'])
+            history['train_accuracy'].append(train_metrics['accuracy'])
+            history['val_loss'].append(val_metrics['loss'])
+            history['val_accuracy'].append(val_metrics['accuracy'])
+            history['learning_rate'].append(current_lr)
+            
+            # Print progress
+            epoch_time = time.time() - start_time
+            logger.info(
+                f"Epoch {epoch+1}/{epochs} - "
+                f"Train Loss: {train_metrics['loss']:.4f} - "
+                f"Train Acc: {train_metrics['accuracy']:.2f}% - "
+                f"Val Loss: {val_metrics['loss']:.4f} - "
+                f"Val Acc: {val_metrics['accuracy']:.2f}% - "
+                f"LR: {current_lr:.2e} - "
+                f"Time: {epoch_time:.2f}s"
+            )
+            
+            # Save best checkpoint
+            is_best = val_metrics['loss'] < self.best_val_loss
+            if is_best:
+                self.best_val_loss = val_metrics['loss']
+                self.best_val_accuracy = val_metrics['accuracy']
+                
+                checkpoint_file = checkpoint_path / "best_model.pt"
+                self._save_checkpoint(checkpoint_file, epoch, val_metrics)
+                logger.info(f"  New best model saved: Val Loss={val_metrics['loss']:.4f}")
+            
+            # Save periodic checkpoint
+            if not self.config.save_best_only and (epoch + 1) % 10 == 0:
+                checkpoint_file = checkpoint_path / f"checkpoint_epoch_{epoch+1}.pt"
+                self._save_checkpoint(checkpoint_file, epoch, val_metrics)
+            
+            # Check early stopping
+            if self.early_stopping(val_metrics['loss'], epoch):
+                logger.info("Early stopping triggered")
+                break
+        
+        # Save final checkpoint
+        final_checkpoint = checkpoint_path / "final_model.pt"
+        self._save_checkpoint(final_checkpoint, epochs - 1, val_metrics)
+        
+        # Close writer
+        self.writer.close()
+        
+        return history
+    
+    def _save_checkpoint(self, 
+                        filepath: Path, 
+                        epoch: int, 
+                        metrics: Dict[str, float]):
+        """Save model checkpoint.
+        
+        Args:
+            filepath: Path to save checkpoint
+            epoch: Current epoch
+            metrics: Current metrics
+        """
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'config': {
+                'learning_rate': self.config.learning_rate,
+                'weight_decay': self.config.weight_decay,
+                'classification_weight': self.config.classification_weight,
+                'regression_weight': self.config.regression_weight,
+            },
+            'metrics': metrics,
+            'best_val_loss': self.best_val_loss,
+            'best_val_accuracy': self.best_val_accuracy,
+        }
+        
+        if self.scheduler is not None:
+            checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
+        
+        torch.save(checkpoint, filepath)
+    
+    def load_checkpoint(self, filepath: str):
+        """Load model checkpoint.
+        
+        Args:
+            filepath: Path to checkpoint file
+        """
+        checkpoint = torch.load(filepath, map_location=self.device, weights_only=False)
+        
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        if 'scheduler_state_dict' in checkpoint and self.scheduler is not None:
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        
+        if 'best_val_loss' in checkpoint:
+            self.best_val_loss = checkpoint['best_val_loss']
+        if 'best_val_accuracy' in checkpoint:
+            self.best_val_accuracy = checkpoint['best_val_accuracy']
+        
+        logger.info(f"Loaded checkpoint from {filepath}")
+        logger.info(f"  Epoch: {checkpoint.get('epoch', 'unknown')}")
+        logger.info(f"  Best Val Loss: {self.best_val_loss:.4f}")
+    
+    def save_history(self, history: Dict[str, List[float]], filepath: str):
+        """Save training history to JSON.
+        
+        Args:
+            history: Training history dictionary
+            filepath: Path to save history
+        """
+        filepath_obj = Path(filepath)
+        filepath_obj.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Convert to JSON-serializable format
+        serializable_history = {
+            key: [float(v) for v in value]
+            for key, value in history.items()
+        }
+        
+        with open(filepath_obj, 'w') as f:
+            json.dump(serializable_history, f, indent=2)
+        
+        logger.info(f"Training history saved to {filepath}")
+
+
+class FormAssessorTrainer(Trainer):
+    """Specialized trainer for FormAssessor model.
+    
+    Uses FormAssessmentLoss instead of MultiTaskLoss.
+    """
+    
+    def __init__(self, 
+                 model: nn.Module,
+                 train_loader: torch.utils.data.DataLoader,
+                 val_loader: torch.utils.data.DataLoader,
+                 config: Optional[TrainingConfig] = None,
+                 device: Optional[str] = None):
+        """Initialize FormAssessor trainer."""
+        criterion = FormAssessmentLoss()
+        super().__init__(model, train_loader, val_loader, config, criterion, device)
+    
+    def train_epoch(self) -> Dict[str, float]:
+        """Train for one epoch (FormAssessor-specific)."""
+        self.model.train()
+        total_loss = 0.0
+        total_aspect_loss = 0.0
+        total_overall_loss = 0.0
+        num_batches = 0
+        
+        for batch in self.train_loader:
+            poses = batch['poses'].to(self.device)
+            
+            # Get target scores if available
+            if 'aspect_scores' in batch:
+                targets = {
+                    'aspect_scores': batch['aspect_scores'].to(self.device),
+                    'overall_score': batch['overall_score'].to(self.device),
+                }
+            else:
+                # Use placeholder targets for unsupervised pretraining
+                batch_size = poses.size(0)
+                targets = {
+                    'aspect_scores': torch.ones(batch_size, 5, device=self.device) * 5.0,
+                    'overall_score': torch.ones(batch_size, 1, device=self.device) * 5.0,
+                }
+            
+            self.optimizer.zero_grad()
+            outputs = self.model(poses)
+            
+            loss_dict = self.criterion(outputs, targets)
+            loss = loss_dict['total']
+            
+            loss.backward()
+            if self.config.max_grad_norm > 0:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(),
+                    self.config.max_grad_norm
+                )
+            self.optimizer.step()
+            
+            if self.scheduler and self.config.scheduler_type == "onecycle":
+                self.scheduler.step()
+            
+            total_loss += loss.item()
+            total_aspect_loss += loss_dict['aspect'].item()
+            total_overall_loss += loss_dict['overall'].item()
+            num_batches += 1
+            
+            self.global_step += 1
+        
+        if self.scheduler and self.config.scheduler_type == "cosine":
+            self.scheduler.step()
+        
+        return {
+            'loss': total_loss / max(num_batches, 1),
+            'aspect_loss': total_aspect_loss / max(num_batches, 1),
+            'overall_loss': total_overall_loss / max(num_batches, 1),
+            'accuracy': 0.0,  # Not applicable for regression
+        }
+    
+    def validate(self) -> Dict[str, float]:
+        """Validate FormAssessor model."""
+        self.model.eval()
+        total_loss = 0.0
+        total_aspect_loss = 0.0
+        total_overall_loss = 0.0
+        num_batches = 0
+        
+        with torch.no_grad():
+            for batch in self.val_loader:
+                poses = batch['poses'].to(self.device)
+                
+                if 'aspect_scores' in batch:
+                    targets = {
+                        'aspect_scores': batch['aspect_scores'].to(self.device),
+                        'overall_score': batch['overall_score'].to(self.device),
+                    }
+                else:
+                    batch_size = poses.size(0)
+                    targets = {
+                        'aspect_scores': torch.ones(batch_size, 5, device=self.device) * 5.0,
+                        'overall_score': torch.ones(batch_size, 1, device=self.device) * 5.0,
+                    }
+                
+                outputs = self.model(poses)
+                loss_dict = self.criterion(outputs, targets)
+                
+                total_loss += loss_dict['total'].item()
+                total_aspect_loss += loss_dict['aspect'].item()
+                total_overall_loss += loss_dict['overall'].item()
+                num_batches += 1
+        
+        return {
+            'loss': total_loss / max(num_batches, 1),
+            'aspect_loss': total_aspect_loss / max(num_batches, 1),
+            'overall_loss': total_overall_loss / max(num_batches, 1),
+            'accuracy': 0.0,
+        }
+
+
+def create_trainer(model: nn.Module,
+                   train_loader: torch.utils.data.DataLoader,
+                   val_loader: torch.utils.data.DataLoader,
+                   config: Optional[TrainingConfig] = None,
+                   model_type: str = "classifier",
+                   **kwargs) -> Trainer:
+    """Factory function to create appropriate trainer.
+    
+    Args:
+        model: PyTorch model to train
+        train_loader: Training data loader
+        val_loader: Validation data loader
+        config: Training configuration
+        model_type: "classifier" or "assessor"
+        **kwargs: Additional arguments for Trainer
+        
+    Returns:
+        Configured Trainer instance
+    """
+    if model_type == "assessor":
+        return FormAssessorTrainer(model, train_loader, val_loader, config, **kwargs)
+    else:
+        return Trainer(model, train_loader, val_loader, config, **kwargs)

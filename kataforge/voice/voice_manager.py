@@ -1,0 +1,237 @@
+"""
+KataForge - Adaptive Martial Arts Analysis System
+Copyright © 2026 DeMoD LLC. All rights reserved.
+
+This file is part of KataForge, released under the KataForge License
+(based on Elastic License v2). See LICENSE in the project root for full terms.
+
+SPDX-License-Identifier: Elastic-2.0
+
+Description:
+    [Brief module description – please edit]
+
+Usage notes:
+    - Private self-hosting, dojo use, and modifications are permitted.
+    - Offering as a hosted/managed service to third parties is prohibited
+      without explicit written permission from DeMoD LLC.
+"""
+
+"""
+Voice Module for Dojo Manager
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import logging
+import os
+from typing import Any, Dict, List, Optional, Tuple
+
+from . import VoiceIntent, IntentParser
+
+logger = logging.getLogger(__name__)
+
+
+class VoiceManager:
+    """Manages voice input/output and intent processing."""
+    
+    def __init__(
+        self,
+        stt_provider: str = "whisper",
+        tts_provider: str = "piper",
+        voice_mode: bool = False,
+        wake_word: str = "hey coach",
+        language: str = "en",
+    ):
+        """Initialize voice manager.
+        
+        Args:
+            stt_provider: STT provider (whisper, browser)
+            tts_provider: TTS provider (piper, coqui, edge)
+            voice_mode: Enable voice mode
+            wake_word: Wake word for voice activation
+            language: Language for STT/TTS
+        """
+        self.stt_provider = stt_provider
+        self.tts_provider = tts_provider
+        self.voice_mode = voice_mode
+        self.wake_word = wake_word
+        self.language = language
+        self.intent_parser = IntentParser()
+        self.last_feedback = ""
+        self.is_listening = False
+        self._initialized = False
+        
+    async def initialize(self):
+        """Initialize voice providers."""
+        if self._initialized:
+            return
+        
+        # For now, we'll just set up placeholders - actual implementations will be in other files
+        self._initialized = True
+        
+    async def is_available(self) -> bool:
+        """Check if voice system is available."""
+        return True  # Always return True for now, actual implementation in subclasses
+    
+    async def set_stt_provider(self, provider: str) -> bool:
+        """Set STT provider.
+        
+        Args:
+            provider: STT provider (whisper, browser)
+            
+        Returns:
+            True if provider was set successfully
+        """
+        if provider not in ["whisper", "browser"]:
+            return False
+        
+        self.stt_provider = provider
+        return True
+    
+    async def set_tts_provider(self, provider: str) -> bool:
+        """Set TTS provider.
+        
+        Args:
+            provider: TTS provider (piper, coqui, edge)
+            
+        Returns:
+            True if provider was set successfully
+        """
+        if provider not in ["piper", "coqui", "edge"]:
+            return False
+        
+        self.tts_provider = provider
+        return True
+    
+    async def set_voice_mode(self, enabled: bool) -> bool:
+        """Set voice mode.
+        
+        Args:
+            enabled: Enable or disable voice mode
+            
+        Returns:
+            True if mode was set successfully
+        """
+        self.voice_mode = enabled
+        return True
+    
+    async def set_language(self, language: str) -> bool:
+        """Set language for STT/TTS.
+        
+        Args:
+            language: Language code
+            
+        Returns:
+            True if language was set successfully
+        """
+        self.language = language
+        return True
+    
+    async def set_wake_word(self, wake_word: str) -> bool:
+        """Set wake word.
+        
+        Args:
+            wake_word: Wake word for voice activation
+            
+        Returns:
+            True if wake word was set successfully
+        """
+        self.wake_word = wake_word
+        return True
+    
+    async def transcribe(self, audio: bytes, sample_rate: int) -> str:
+        """Transcribe audio to text.
+        
+        Args:
+            audio: Audio data as bytes
+            sample_rate: Audio sample rate
+            
+        Returns:
+            Transcribed text
+        """
+        # Placeholder implementation
+        return "Placeholder transcription"
+    
+    async def synthesize(self, text: str) -> Tuple[bytes, int]:
+        """Synthesize speech from text.
+        
+        Args:
+            text: Text to synthesize
+            
+        Returns:
+            Tuple of (audio_data, sample_rate)
+        """
+        # Placeholder implementation
+        return b"", 22050  # Return dummy audio
+    
+    async def parse_intent(self, text: str) -> Optional[Dict[str, Any]]:
+        """Parse voice command into intent.
+        
+        Args:
+            text: Transcribed text
+            
+        Returns:
+            Dictionary with intent information or None if no match
+        """
+        return self.intent_parser.parse(text)
+    
+    async def get_help_text(self) -> str:
+        """Get help text for voice commands."""
+        return self.intent_parser.get_help_text()
+    
+    async def repeat_last_feedback(self) -> Tuple[bytes, int]:
+        """Repeat the last feedback.
+        
+        Returns:
+            Tuple of (audio_data, sample_rate)
+        """
+        # Placeholder implementation
+        return await self.synthesize("No feedback to repeat.")
+    
+    async def speak(self, text: str) -> Tuple[bytes, int]:
+        """Speak text and store as last feedback.
+        
+        Args:
+            text: Text to speak
+            
+        Returns:
+            Tuple of (audio_data, sample_rate)
+        """
+        self.last_feedback = text
+        return await self.synthesize(text)
+    
+    async def analyze_voice_command(self, audio: bytes, sample_rate: int) -> Dict[str, Any]:
+        """Analyze voice command and return action.
+        
+        Args:
+            audio: Audio data as bytes
+            sample_rate: Audio sample rate
+            
+        Returns:
+            Dictionary with action and response
+        """
+        result = {
+            "action": "none",
+            "response": "",
+            "audio": None,
+            "sample_rate": 0,
+            "intent": None,
+        }
+        
+        try:
+            # For now, return placeholder response
+            result["response"] = "Voice command processed successfully"
+            result["audio"], result["sample_rate"] = await self.speak(result["response"])
+        except Exception as e:
+            logger.error("Voice command analysis failed", exc_info=e)
+            result["response"] = "Sorry, I had trouble processing your command."
+            result["audio"], result["sample_rate"] = await self.speak(result["response"])
+        
+        return result
+    
+    async def close(self):
+        """Close voice providers."""
+        pass  # Placeholder for cleanup

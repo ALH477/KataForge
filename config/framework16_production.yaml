@@ -1,0 +1,457 @@
+# Framework 16 Production Configuration
+# AMD Ryzen 9 7840HS + AMD Radeon RX 7700S
+# Copyright (c) 2026 DeMoD LLC. All rights reserved.
+
+# ============================================================================
+# Hardware Configuration
+# ============================================================================
+hardware:
+  device: "cuda"  # PyTorch uses "cuda" for both CUDA and ROCm
+  gpu_model: "AMD Radeon RX 7700S"
+  gpu_memory_gb: 8
+  architecture: "RDNA3"
+  gfx_version: "gfx1100"
+  compute_units: 32
+  
+  cpu_model: "AMD Ryzen 9 7840HS"
+  cpu_cores: 8
+  cpu_threads: 16
+  system_memory_gb: 32
+
+# ============================================================================
+# Power & Thermal Management
+# ============================================================================
+power:
+  # Framework 16 can handle up to 180W total system power
+  gpu_power_limit: 175  # Watts - optimal for sustained training
+  cpu_tdp: 54           # Watts - base TDP
+  
+  # Thermal targets
+  gpu_temp_target: 85   # Celsius - optimal performance/longevity balance
+  gpu_temp_max: 95      # Celsius - throttle threshold
+  cpu_temp_target: 85   # Celsius
+  
+  # Power profile
+  power_profile: "performance"  # Options: balanced, performance, turbo
+  
+  # Cooling
+  fan_curve: "performance"  # Options: quiet, balanced, performance, turbo
+  
+  # Monitoring
+  check_throttling: true
+  throttle_warning_temp: 90
+  
+  # Power management strategy
+  sustained_load: true  # Optimize for long training sessions
+  power_save_idle: false  # Keep clocks high during training
+
+# ============================================================================
+# Training Configuration  
+# ============================================================================
+training:
+  # Batch configuration (optimized for 8GB VRAM)
+  batch_size: 4  # Start conservative
+  max_batch_size: 8  # Can increase if stable
+  min_batch_size: 2  # Fallback if OOM
+  
+  # Sequence configuration
+  sequence_length: 32
+  max_sequence_length: 64
+  
+  # Memory optimization
+  mixed_precision: true
+  precision: "fp16"  # FP16 for AMD, provides 2x speedup
+  gradient_checkpointing: true  # Trade compute for memory
+  gradient_accumulation_steps: 4  # Effective batch size: 16
+  
+  # Memory management
+  empty_cache_interval: 10  # Clear cache every N batches
+  memory_efficient_attention: true
+  
+  # Data loading (8 cores available)
+  num_workers: 4  # Half of CPU cores for data loading
+  prefetch_factor: 2
+  pin_memory: true
+  persistent_workers: true
+  drop_last: true  # Drop incomplete batches
+  
+  # Training parameters
+  learning_rate: 0.0001
+  warmup_steps: 500
+  max_epochs: 100
+  early_stopping_patience: 10
+  
+  # Learning rate schedule
+  scheduler: "cosine"
+  min_lr: 1e-6
+  
+  # Regularization
+  weight_decay: 0.01
+  dropout: 0.3
+  label_smoothing: 0.1
+  
+  # Optimization
+  optimizer: "adamw"
+  betas: [0.9, 0.999]
+  eps: 1e-8
+  amsgrad: false
+  
+  # Gradient clipping
+  max_grad_norm: 1.0
+  
+  # Monitoring
+  log_interval: 10  # Log every N batches
+  eval_interval: 100  # Evaluate every N batches
+  save_interval: 1000  # Save checkpoint every N batches
+  
+  # Validation
+  validation_split: 0.15
+  test_split: 0.15
+  stratified: true  # Stratified splits by technique
+
+# ============================================================================
+# Model Configurations
+# ============================================================================
+models:
+  # GraphSAGE Technique Classifier
+  graphsage:
+    input_dim: 4  # x, y, z, visibility
+    hidden_channels: 128
+    num_layers: 3
+    num_classes: 50  # Number of techniques
+    dropout: 0.5
+    aggregator: "mean"  # Options: mean, max, lstm
+    normalize: true
+    
+  # LSTM Form Assessor
+  form_assessor:
+    input_dim: 132  # 33 landmarks × 4 features
+    hidden_dim: 256
+    num_lstm_layers: 2
+    num_attention_heads: 8
+    num_aspects: 5  # speed, force, timing, balance, coordination
+    dropout: 0.3
+    bidirectional: true
+    
+  # Coach Style Encoder
+  style_encoder:
+    num_coaches: 100  # Maximum coaches
+    num_techniques: 50
+    coach_embedding_dim: 64
+    technique_embedding_dim: 32
+    hidden_dim: 128
+    output_dim: 64
+
+# ============================================================================
+# Data Augmentation
+# ============================================================================
+augmentation:
+  # Temporal augmentation
+  temporal_jitter: true
+  speed_variation: [0.8, 1.2]  # 80%-120% speed
+  
+  # Spatial augmentation
+  spatial_noise: 0.01  # 1cm Gaussian noise
+  random_rotation: 5   # ±5 degrees
+  random_scale: [0.95, 1.05]
+  
+  # Flipping
+  horizontal_flip: true
+  flip_probability: 0.3
+  
+  # Occlusion simulation
+  random_occlusion: true
+  occlusion_probability: 0.1
+  max_occluded_landmarks: 3
+
+# ============================================================================
+# Paths & Storage
+# ============================================================================
+paths:
+  data_root: "./data"
+  raw_videos: "./data/raw"
+  processed_videos: "./data/processed"
+  poses: "./data/poses"
+  biomechanics: "./data/metrics"
+  splits: "./data/splits"
+  
+  models_dir: "./models"
+  checkpoints_dir: "./checkpoints"
+  logs_dir: "./logs"
+  cache_dir: "./cache"
+  
+  # Outputs
+  predictions_dir: "./predictions"
+  visualizations_dir: "./visualizations"
+  reports_dir: "./reports"
+
+# ============================================================================
+# Logging & Monitoring
+# ============================================================================
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "json"  # json or text
+  
+  # File logging
+  log_to_file: true
+  log_file: "logs/training.log"
+  max_log_size_mb: 100
+  backup_count: 5
+  
+  # Console logging
+  log_to_console: true
+  console_level: "INFO"
+  
+  # Metrics logging
+  tensorboard: true
+  tensorboard_dir: "logs/tensorboard"
+  
+  # MLflow (optional)
+  mlflow_tracking: false
+  mlflow_uri: "http://localhost:5000"
+  
+  # Weights & Biases (optional)
+  wandb: false
+  wandb_project: "dojo-manager"
+  
+  # Progress bars
+  use_tqdm: true
+  tqdm_position: 0
+
+# ============================================================================
+# Checkpointing
+# ============================================================================
+checkpointing:
+  save_best_only: false  # Save all checkpoints
+  save_last: true
+  save_top_k: 3  # Keep top 3 models by validation accuracy
+  
+  monitor: "val_accuracy"
+  mode: "max"  # max for accuracy, min for loss
+  
+  # Checkpoint contents
+  save_optimizer: true
+  save_scheduler: true
+  save_epoch: true
+  save_global_step: true
+
+# ============================================================================
+# Error Handling & Recovery
+# ============================================================================
+error_handling:
+  # Retry configuration
+  max_retries: 3
+  retry_delay: 5  # seconds
+  exponential_backoff: true
+  
+  # OOM handling
+  auto_reduce_batch_size: true
+  batch_size_reduction_factor: 0.5
+  
+  # NaN handling
+  check_for_nan: true
+  terminate_on_nan: false
+  
+  # Checkpoint recovery
+  auto_resume: true
+  resume_from_checkpoint: "latest"  # latest, best, or path
+  
+  # Graceful shutdown
+  catch_signals: true  # SIGINT, SIGTERM
+  cleanup_on_exit: true
+
+# ============================================================================
+# Validation & Testing
+# ============================================================================
+validation:
+  # Validation frequency
+  validate_every_n_epochs: 1
+  validate_every_n_steps: 1000
+  
+  # Metrics
+  metrics: ["accuracy", "precision", "recall", "f1", "confusion_matrix"]
+  
+  # Early stopping
+  early_stopping: true
+  patience: 10
+  min_delta: 0.001
+  
+  # Testing
+  test_after_training: true
+  test_metrics: ["accuracy", "per_class_accuracy", "inference_time"]
+
+# ============================================================================
+# Performance Optimization
+# ============================================================================
+performance:
+  # Compilation (PyTorch 2.0+)
+  compile_model: false  # Set to true if PyTorch 2.0+
+  compile_mode: "default"  # default, reduce-overhead, max-autotune
+  
+  # Mixed precision
+  use_amp: true  # Automatic Mixed Precision
+  amp_dtype: "float16"
+  
+  # Gradient scaling
+  use_gradient_scaling: true
+  
+  # DataLoader optimization
+  multiprocessing_context: "fork"  # fork, spawn, forkserver
+  
+  # CUDA/ROCm optimizations
+  cudnn_benchmark: true
+  cudnn_deterministic: false  # Set true for reproducibility
+  
+  # Memory optimization
+  max_split_size_mb: 512  # For memory fragmentation
+  
+  # Profiling
+  enable_profiling: false
+  profile_schedule: [5, 10, 1]  # wait, warmup, active
+
+# ============================================================================
+# Reproducibility
+# ============================================================================
+reproducibility:
+  seed: 42
+  deterministic: false  # Set true for exact reproducibility (slower)
+  benchmark: true  # Faster but non-deterministic
+  
+  # RNG states to save
+  save_rng_state: true
+
+# ============================================================================
+# System Monitoring
+# ============================================================================
+monitoring:
+  # GPU monitoring
+  monitor_gpu: true
+  gpu_log_interval: 60  # seconds
+  
+  # System monitoring
+  monitor_cpu: true
+  monitor_memory: true
+  monitor_disk: true
+  
+  # Alerts
+  enable_alerts: true
+  alert_on_high_temp: true
+  alert_on_low_memory: true
+  alert_on_throttling: true
+  
+  # Health checks
+  health_check_interval: 300  # seconds
+  
+  # Metrics to track
+  track_throughput: true  # samples/second
+  track_time_per_epoch: true
+  track_memory_usage: true
+
+# ============================================================================
+# Framework 16 Specific Optimizations
+# ============================================================================
+framework16:
+  # Hardware identification
+  verify_hardware: true
+  expected_cpu: "7840HS"
+  expected_gpu: "7700S"
+  
+  # Power delivery
+  require_ac_power: true  # Warn if on battery
+  check_power_mode: true  # Verify performance mode
+  
+  # Thermal management
+  monitor_throttling: true
+  adjust_batch_on_throttle: true
+  throttle_threshold: 90  # Celsius
+  
+  # Fan control (if supported)
+  set_fan_curve: false  # Usually needs root
+  fan_curve_preference: "performance"
+  
+  # Power optimization
+  use_smart_shift: true  # AMD SmartShift if available
+  prefer_gpu_compute: true
+  
+  # Display optimization
+  reduce_display_brightness: false  # Can reduce heat
+  
+  # Recommendations
+  warn_on_battery: true
+  warn_on_high_temp: true
+  suggest_cooling_breaks: true
+  cooling_break_interval: 14400  # 4 hours
+
+# ============================================================================
+# Deployment
+# ============================================================================
+deployment:
+  # Export format
+  export_onnx: true
+  onnx_opset: 14
+  
+  # Quantization
+  quantize: false  # Post-training quantization
+  quantization_dtype: "int8"
+  
+  # Optimization
+  optimize_for_inference: true
+  
+  # Serving
+  serve_locally: false
+  api_port: 8000
+  
+  # Model versioning
+  version: "1.0.0"
+  track_versions: true
+
+# ============================================================================
+# Debug & Development
+# ============================================================================
+debug:
+  # Debug mode
+  debug: false
+  verbose: false
+  
+  # Profiling
+  profile_memory: false
+  profile_time: false
+  
+  # Visualization
+  visualize_batch: false
+  save_visualizations: false
+  
+  # Testing
+  fast_dev_run: false  # Run 1 batch for testing
+  overfit_batches: 0  # Overfit N batches for debugging
+  
+  # Limits
+  limit_train_batches: null  # Limit training batches
+  limit_val_batches: null
+  limit_test_batches: null
+
+# ============================================================================
+# Notes
+# ============================================================================
+# This configuration is optimized for:
+# - Framework 16 laptop (AMD 7840HS + RX 7700S)
+# - 8GB VRAM constraint
+# - Long training sessions (multi-day)
+# - Balanced performance and stability
+# - 175W power limit for optimal sustained performance
+#
+# Adjust batch_size and sequence_length based on your specific data
+# and memory requirements. Start conservative and increase if stable.
+#
+# For maximum performance, ensure:
+# 1. AC power connected
+# 2. Performance power profile active
+# 3. Good cooling (elevated laptop or cooling pad)
+# 4. Latest ROCm drivers installed
+# 5. HSA_OVERRIDE_GFX_VERSION=11.0.0 set
+#
+# Expected training times (100 epochs):
+# - GraphSAGE: 25-33 hours
+# - Form Assessor: 33-42 hours
+# - Style Encoder: 17-25 hours
+# Total: ~75-100 hours (3-4 days)

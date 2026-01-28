@@ -1,0 +1,42 @@
+# Base Configuration
+
+# Environment-agnostic settings
+version: 1
+
+# Application Parameters
+app_name: "dojo-manager"
+environment: "development"
+debug: false
+
+# Data Management
+data_dir: "~/.dojo/data"
+
+# Core Components
+logging:
+  level: "INFO"
+  format: "json"
+
+# LLM Settings
+llm:
+  backend: "ollama"
+  endpoint: "http://localhost:11434/api/generate"
+
+# Training Defaults
+training:
+  epochs: 100
+  batch_size: 4
+  learning_rate: 0.0001
+
+# Security
+security:
+  jwt_expiry_hours: 24
+  api_key_rotation_days: 30
+
+# UI Configuration
+ui:
+  theme: "dark"
+  enable_telemetry: false
+
+# Profile Selection
+# Use DOJO_PROFILE=rocm/cuda/vulkan
+# Example: poetry run dojo-manager --profile=cuda

@@ -1,0 +1,211 @@
+"""
+KataForge - Adaptive Martial Arts Analysis System
+Copyright © 2026 DeMoD LLC. All rights reserved.
+
+This file is part of KataForge, released under the KataForge License
+(based on Elastic License v2). See LICENSE in the project root for full terms.
+
+SPDX-License-Identifier: Elastic-2.0
+
+Description:
+    [Brief module description – please edit]
+
+Usage notes:
+    - Private self-hosting, dojo use, and modifications are permitted.
+    - Offering as a hosted/managed service to third parties is prohibited
+      without explicit written permission from DeMoD LLC.
+"""
+
+"""Coach profile management module."""
+
+from pathlib import Path
+import json
+from typing import Dict, List, Optional
+from datetime import datetime
+
+
+class ProfileManager:
+    """Manage coach profiles and lineage tracking."""
+    
+    def __init__(self, profiles_dir: str = "./profiles"):
+        """Initialize profile manager.
+        
+        Args:
+            profiles_dir: Directory to store profiles
+        """
+        self.profiles_dir = Path(profiles_dir)
+        self.profiles_dir.mkdir(parents=True, exist_ok=True)
+    
+    def create_profile(self, 
+                      coach_id: str,
+                      name: str,
+                      style: str,
+                      rank: str,
+                      years_experience: int = 0,
+                      teachers: List[str] = None,
+                      techniques: List[str] = None,
+                      teaching_philosophy: Dict = None) -> Dict:
+        """Create a new coach profile.
+        
+        Args:
+            coach_id: Unique identifier for coach
+            name: Coach's full name
+            style: Martial art style
+            rank: Current rank/belt level
+            years_experience: Years of experience
+            teachers: List of influential teachers
+            techniques: List of taught techniques
+            teaching_philosophy: Teaching approach and focus areas
+            
+        Returns:
+            Created profile dictionary
+        """
+        profile = {
+            'id': coach_id,
+            'name': name,
+            'style': style,
+            'rank': rank,
+            'years_experience': years_experience,
+            'teachers': teachers or [],
+            'techniques': techniques or [],
+            'teaching_philosophy': teaching_philosophy or {},
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        # Save profile
+        self.save_profile(coach_id, profile)
+        
+        return profile
+    
+    def save_profile(self, coach_id: str, profile: Dict):
+        """Save coach profile to file.
+        
+        Args:
+            coach_id: Coach identifier
+            profile: Profile data to save
+        """
+        profile_file = self.profiles_dir / f"{coach_id}.json"
+        profile['updated_at'] = datetime.now().isoformat()
+        
+        with open(profile_file, 'w') as f:
+            json.dump(profile, f, indent=2)
+    
+    def load_profile(self, coach_id: str) -> Optional[Dict]:
+        """Load coach profile from file.
+        
+        Args:
+            coach_id: Coach identifier
+            
+        Returns:
+            Profile dictionary or None if not found
+        """
+        profile_file = self.profiles_dir / f"{coach_id}.json"
+        
+        if not profile_file.exists():
+            return None
+        
+        with open(profile_file) as f:
+            return json.load(f)
+    
+    def update_profile(self, coach_id: str, updates: Dict) -> Optional[Dict]:
+        """Update existing coach profile.
+        
+        Args:
+            coach_id: Coach identifier
+            updates: Fields to update
+            
+        Returns:
+            Updated profile or None if profile doesn't exist
+        """
+        profile = self.load_profile(coach_id)
+        
+        if profile is None:
+            return None
+        
+        # Update fields
+        profile.update(updates)
+        profile['updated_at'] = datetime.now().isoformat()
+        
+        # Save updated profile
+        self.save_profile(coach_id, profile)
+        
+        return profile
+    
+    def list_profiles(self) -> List[str]:
+        """List all coach profiles.
+        
+        Returns:
+            List of coach IDs
+        """
+        profiles = []
+        
+        for profile_file in self.profiles_dir.glob("*.json"):
+            coach_id = profile_file.stem
+            profiles.append(coach_id)
+        
+        return profiles
+    
+    def delete_profile(self, coach_id: str) -> bool:
+        """Delete coach profile.
+        
+        Args:
+            coach_id: Coach identifier
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        profile_file = self.profiles_dir / f"{coach_id}.json"
+        
+        if profile_file.exists():
+            profile_file.unlink()
+            return True
+        
+        return False
+    
+    def export_profile(self, coach_id: str, filepath: str):
+        """Export coach profile to file.
+        
+        Args:
+            coach_id: Coach identifier
+            filepath: Export file path
+        """
+        profile = self.load_profile(coach_id)
+        
+        if profile is None:
+            raise ValueError(f"Profile not found for coach: {coach_id}")
+        
+        export_path = Path(filepath)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(export_path, 'w') as f:
+            json.dump(profile, f, indent=2)
+    
+    def import_profile(self, filepath: str) -> str:
+        """Import coach profile from file.
+        
+        Args:
+            filepath: Import file path
+            
+        Returns:
+            Imported coach ID
+        """
+        with open(filepath) as f:
+            profile = json.load(f)
+        
+        coach_id = profile.get('id') or Path(filepath).stem
+        self.save_profile(coach_id, profile)
+        
+        return coach_id
+
+
+def create_profile_manager(profiles_dir: str = "./profiles") -> ProfileManager:
+    """Factory function to create profile manager.
+    
+    Args:
+        profiles_dir: Directory to store profiles
+        
+    Returns:
+        Configured ProfileManager instance
+    """
+    return ProfileManager(profiles_dir)

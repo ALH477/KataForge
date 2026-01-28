@@ -1,0 +1,29 @@
+"""
+Gradio Web UI Module for Dojo Manager
+
+Provides a beautiful web interface for:
+- Video upload and technique analysis
+- Frame-by-frame analysis with vision AI
+- AI-generated coaching feedback
+- Coach profile management
+"""
+
+from .gradio_app import (
+    DojoGradioApp,
+    create_gradio_app,
+    launch_ui,
+)
+from .theme import (
+    AMBER_COLORS,
+    create_amber_theme,
+)
+
+__all__ = [
+    # App
+    "DojoGradioApp",
+    "create_gradio_app",
+    "launch_ui",
+    # Theme
+    "AMBER_COLORS",
+    "create_amber_theme",
+]

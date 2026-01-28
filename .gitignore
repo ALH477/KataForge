@@ -1,0 +1,149 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type Checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# Data
+data/raw/*
+data/processed/*
+data/poses/*
+data/metrics/*
+data/splits/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/poses/.gitkeep
+!data/metrics/.gitkeep
+!data/splits/.gitkeep
+
+# Models
+models/*
+!models/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+
+# Logs
+logs/*
+!logs/.gitkeep
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+tmp/
+
+# Nix
+result
+result-*
+.direnv/
+
+# Docker
+*.tar
+*.tar.gz
+!dojo-manager-complete-codebase.tar.gz
+
+# Cloud & Secrets
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+secrets.yaml
+*.key
+*.pem
+.env.local
+.env.production
+
+# OS
+Thumbs.db
+.Trash-*
+
+# Large files
+*.mp4
+*.avi
+*.mov
+*.mpeg
+*.mpg
+*.wmv
+*.h264
+*.h265
+
+# Compiled
+*.o
+*.a
+*.lib
+*.dll
+*.exe
+
+# ML Artifacts
+wandb/
+mlruns/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+# Specific to project
+*.calibration
+cache/
+.npm-global/
+
+# Keep these
+!docs/**/*.md
+!config/**/*.yaml

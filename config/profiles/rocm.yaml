@@ -1,0 +1,28 @@
+device: rocm
+power_limit: 175
+precision: fp16
+architecture: gfx1100
+memory_gb: 16
+
+framework:
+  name: Framework 16
+  description: AMD Ryzen 9 + Radeon RX 7700S
+  validation:
+    cpu_model: "AMD Ryzen 9"
+    gpu_model: "Radeon RX 7700S"
+
+performance:
+  auto_tune: true
+  batch_strategy: dynamic
+  tensor_cores: true
+
+training:
+  batch_size: 8
+  learning_rate: 0.0002
+  epochs: 120
+  mixed_precision: true
+
+monitoring:
+  check_interval: 60
+  thermal_threshold: 85
+  power_alert: 180

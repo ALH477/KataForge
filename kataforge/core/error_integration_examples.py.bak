@@ -1,0 +1,795 @@
+"""
+Integration Guide: Centralized Error Handling
+==============================================
+
+This guide shows how to integrate the centralized error handling system
+across all Dojo Manager subsystems.
+"""
+
+# ============================================================================
+# Example 1: Video Preprocessing Integration
+# ============================================================================
+
+from pathlib import Path
+import cv2
+import numpy as np
+from typing import Dict, Any, Optional
+
+from kataforge.core.error_handling import (
+    handle_errors,
+    ProcessingError,
+    ValidationError,
+    OutOfMemoryError,
+    create_error_context,
+    RecoveryStrategy,
+    ErrorHandlerConfig,
+    ErrorHandler,
+)
+
+
+class VideoPreprocessor:
+    """Video preprocessor with centralized error handling"""
+    
+    @handle_errors(max_retries=2, recovery_strategy=RecoveryStrategy.RETRY)
+    def preprocess_video(
+        self,
+        video_path: str,
+        output_path: str,
+        target_fps: int = 60,
+    ) -> Dict[str, Any]:
+        """
+        Preprocess video with automatic error handling
+        
+        The decorator automatically:
+        - Retries up to 2 times on transient failures
+        - Logs all errors with context
+        - Registers errors in central registry
+        - Provides structured error information
+        """
+        video_path = Path(video_path)
+        output_path = Path(output_path)
+        
+        # Validation - raises ValidationError automatically
+        self._validate_inputs(video_path, output_path)
+        
+        # Open video with error handling
+        cap = self._open_video(video_path)
+        
+        try:
+            # Get properties
+            metadata = self._get_video_properties(cap)
+            
+            # Setup output
+            out = self._create_output_writer(output_path, target_fps)
+            
+            try:
+                # Process frames
+                processed_frames = self._process_frames(cap, out)
+                metadata['processed_frames'] = processed_frames
+                
+                return metadata
+                
+            finally:
+                out.release()
+        finally:
+            cap.release()
+    
+    def _validate_inputs(self, video_path: Path, output_path: Path) -> None:
+        """Validate inputs - raises ValidationError on failure"""
+        if not video_path.exists():
+            raise ValidationError(
+                f"Video file not found: {video_path}",
+                field="video_path",
+            )
+        
+        if video_path.stat().st_size == 0:
+            raise ValidationError(
+                f"Video file is empty: {video_path}",
+                field="video_path",
+            )
+        
+        # Check output directory
+        output_dir = output_path.parent
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _open_video(self, video_path: Path) -> cv2.VideoCapture:
+        """Open video with proper error handling"""
+        cap = cv2.VideoCapture(str(video_path))
+        
+        if not cap.isOpened():
+            context = create_error_context(
+                operation="open_video",
+                video_path=str(video_path)
+            )
+            raise ProcessingError(
+                f"Failed to open video: {video_path}",
+                context=context,
+                retryable=True,
+            )
+        
+        return cap
+    
+    def _get_video_properties(self, cap: cv2.VideoCapture) -> Dict[str, Any]:
+        """Extract video properties"""
+        return {
+            'fps': cap.get(cv2.CAP_PROP_FPS),
+            'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            'total_frames': int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+        }
+    
+    def _create_output_writer(
+        self,
+        output_path: Path,
+        fps: int
+    ) -> cv2.VideoWriter:
+        """Create output video writer"""
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(
+            str(output_path),
+            fourcc,
+            fps,
+            (1920, 1080)
+        )
+        
+        if not out.isOpened():
+            raise ProcessingError(
+                f"Failed to create output video: {output_path}"
+            )
+        
+        return out
+    
+    def _process_frames(
+        self,
+        cap: cv2.VideoCapture,
+        out: cv2.VideoWriter
+    ) -> int:
+        """Process frames with per-frame error handling"""
+        processed_count = 0
+        frame_idx = 0
+        
+        # Configure per-frame handler
+        frame_handler = ErrorHandler(ErrorHandlerConfig(
+            max_retries=1,
+            recovery_strategy=RecoveryStrategy.SKIP,  # Skip bad frames
+            log_errors=True,
+        ))
+        
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # Process frame with error handling
+            try:
+                with frame_handler:
+                    processed_frame = self._process_single_frame(frame)
+                    out.write(processed_frame)
+                    processed_count += 1
+            except Exception as e:
+                # Frame processing failed, logged and skipped
+                pass
+            
+            frame_idx += 1
+        
+        return processed_count
+    
+    def _process_single_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Process a single frame"""
+        # Check memory before processing
+        if frame.nbytes > 100_000_000:  # 100MB
+            raise OutOfMemoryError(
+                f"Frame too large: {frame.nbytes} bytes",
+            )
+        
+        # Resize
+        frame = cv2.resize(frame, (1920, 1080))
+        
+        # Enhancement
+        frame = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
+        
+        return frame
+
+
+# ============================================================================
+# Example 2: MediaPipe Integration
+# ============================================================================
+
+from kataforge.core.error_handling import (
+    DataNotFoundError,
+    safe_execute,
+)
+
+try:
+    import mediapipe as mp
+    MEDIAPIPE_AVAILABLE = True
+except ImportError:
+    MEDIAPIPE_AVAILABLE = False
+
+
+class MediaPipePoseExtractor:
+    """Pose extractor with centralized error handling"""
+    
+    def __init__(self):
+        if not MEDIAPIPE_AVAILABLE:
+            raise ProcessingError(
+                "MediaPipe not available",
+                details={"install_command": "pip install mediapipe"},
+            )
+        
+        self.mp_pose = mp.solutions.pose
+        self.pose = self.mp_pose.Pose(
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.7
+        )
+    
+    @handle_errors(
+        max_retries=3,
+        recovery_strategy=RecoveryStrategy.RETRY
+    )
+    def extract_from_video(self, video_path: str) -> Dict[str, Any]:
+        """Extract poses with automatic retry on transient failures"""
+        video_path = Path(video_path)
+        
+        if not video_path.exists():
+            raise DataNotFoundError(
+                f"Video not found: {video_path}",
+                resource_type="video",
+                resource_id=str(video_path),
+            )
+        
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise ProcessingError(
+                f"Cannot open video: {video_path}",
+                retryable=True
+            )
+        
+        try:
+            poses = []
+            frame_idx = 0
+            
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Process frame with fallback
+                landmarks = safe_execute(
+                    self._extract_landmarks,
+                    frame,
+                    default=None,  # Return None on failure
+                    max_retries=1
+                )
+                
+                if landmarks is not None:
+                    poses.append(landmarks)
+                elif poses:
+                    # Use last valid pose as fallback
+                    poses.append(poses[-1])
+                else:
+                    # No valid poses yet, use zeros
+                    poses.append(np.zeros((33, 4)))
+                
+                frame_idx += 1
+            
+            return {
+                'poses': np.array(poses),
+                'total_frames': frame_idx,
+                'video_path': str(video_path),
+            }
+            
+        finally:
+            cap.release()
+    
+    def _extract_landmarks(self, frame: np.ndarray) -> Optional[np.ndarray]:
+        """Extract landmarks from single frame"""
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.pose.process(rgb_frame)
+        
+        if not results.pose_landmarks:
+            raise ProcessingError(
+                "No pose detected in frame",
+                retryable=True,
+            )
+        
+        landmarks = np.zeros((33, 4))
+        for idx, landmark in enumerate(results.pose_landmarks.landmark):
+            landmarks[idx] = [
+                landmark.x,
+                landmark.y,
+                landmark.z,
+                landmark.visibility
+            ]
+        
+        return landmarks
+
+
+# ============================================================================
+# Example 3: Biomechanics Calculator Integration
+# ============================================================================
+
+from kataforge.core.error_handling import ComputationError
+
+
+class BiomechanicsCalculator:
+    """Biomechanics calculator with error handling"""
+    
+    @handle_errors(
+        recovery_strategy=RecoveryStrategy.FALLBACK
+    )
+    def calculate_velocity(
+        self,
+        positions: np.ndarray,
+        fps: float
+    ) -> np.ndarray:
+        """
+        Calculate velocity with fallback to simple method on error
+        """
+        if positions.shape[0] < 3:
+            raise ComputationError(
+                "Need at least 3 frames for velocity calculation",
+                details={"frames": positions.shape[0], "required": 3}
+            )
+        
+        dt = 1.0 / fps
+        velocity = np.zeros_like(positions)
+        
+        try:
+            # Try advanced method with smoothing
+            velocity = self._calculate_velocity_advanced(positions, dt)
+        except Exception as e:
+            # Fallback to simple method
+            context = create_error_context(
+                operation="velocity_calculation",
+                method="advanced"
+            )
+            raise ComputationError(
+                "Advanced velocity calculation failed, using fallback",
+                cause=e,
+                context=context,
+                recovery_strategy=RecoveryStrategy.FALLBACK,
+            )
+        
+        return velocity
+    
+    def _calculate_velocity_advanced(
+        self,
+        positions: np.ndarray,
+        dt: float
+    ) -> np.ndarray:
+        """Advanced velocity calculation with smoothing"""
+        # Central difference
+        velocity = np.zeros_like(positions)
+        velocity[1:-1] = (positions[2:] - positions[:-2]) / (2 * dt)
+        velocity[0] = (positions[1] - positions[0]) / dt
+        velocity[-1] = (positions[-1] - positions[-2]) / dt
+        
+        # Apply Savitzky-Golay smoothing
+        from scipy.signal import savgol_filter
+        for i in range(velocity.shape[1]):
+            for j in range(velocity.shape[2]):
+                velocity[:, i, j] = savgol_filter(
+                    velocity[:, i, j],
+                    window_length=5,
+                    polyorder=2
+                )
+        
+        return velocity
+    
+    @staticmethod
+    def _calculate_velocity_simple(
+        positions: np.ndarray,
+        dt: float
+    ) -> np.ndarray:
+        """Simple velocity calculation (fallback method)"""
+        velocity = np.zeros_like(positions)
+        velocity[1:-1] = (positions[2:] - positions[:-2]) / (2 * dt)
+        velocity[0] = (positions[1] - positions[0]) / dt
+        velocity[-1] = (positions[-1] - positions[-2]) / dt
+        return velocity
+
+
+# ============================================================================
+# Example 4: ML Model Integration
+# ============================================================================
+
+from kataforge.core.error_handling import (
+    ModelLoadingError,
+    ModelInferenceError,
+)
+
+try:
+    import torch
+    import torch.nn as nn
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+
+class FormAssessor:
+    """ML model with error handling"""
+    
+    def __init__(self, model_path: str):
+        if not TORCH_AVAILABLE:
+            raise ModelLoadingError(
+                "PyTorch not available",
+                details={"install_command": "pip install torch"},
+            )
+        
+        self.model = self._load_model(model_path)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model.to(self.device)
+    
+    @handle_errors(
+        max_retries=1,
+        recovery_strategy=RecoveryStrategy.RETRY
+    )
+    def _load_model(self, model_path: str) -> nn.Module:
+        """Load model with error handling"""
+        model_path = Path(model_path)
+        
+        if not model_path.exists():
+            raise ModelLoadingError(
+                f"Model file not found: {model_path}",
+                details={
+                    "model_path": str(model_path),
+                    "suggested_action": "Check model path or download model"
+                }
+            )
+        
+        try:
+            # Load model
+            model = torch.load(model_path, map_location=self.device)
+            model.eval()
+            return model
+            
+        except Exception as e:
+            context = create_error_context(
+                operation="model_loading",
+                model_path=str(model_path),
+                device=str(self.device)
+            )
+            raise ModelLoadingError(
+                f"Failed to load model: {e}",
+                cause=e,
+                context=context,
+            )
+    
+    @handle_errors(
+        max_retries=2,
+        recovery_strategy=RecoveryStrategy.RETRY
+    )
+    def assess(self, poses: np.ndarray) -> Dict[str, float]:
+        """Assess form with error handling and retry"""
+        if poses.shape[1] != 33 or poses.shape[2] != 4:
+            raise ValidationError(
+                f"Invalid pose shape: {poses.shape}",
+                field="poses",
+                details={
+                    "expected": "(N, 33, 4)",
+                    "got": str(poses.shape)
+                }
+            )
+        
+        try:
+            # Convert to tensor
+            poses_tensor = torch.FloatTensor(poses).to(self.device)
+            
+            # Add batch dimension if needed
+            if poses_tensor.dim() == 2:
+                poses_tensor = poses_tensor.unsqueeze(0)
+            
+            # Inference
+            with torch.no_grad():
+                outputs = self.model(poses_tensor)
+            
+            # Extract scores
+            scores = {
+                'overall': float(outputs['overall_score'].item()),
+                'speed': float(outputs['aspect_scores'][0, 0].item()),
+                'force': float(outputs['aspect_scores'][0, 1].item()),
+                'timing': float(outputs['aspect_scores'][0, 2].item()),
+                'balance': float(outputs['aspect_scores'][0, 3].item()),
+                'coordination': float(outputs['aspect_scores'][0, 4].item()),
+            }
+            
+            return scores
+            
+        except torch.cuda.OutOfMemoryError as e:
+            raise OutOfMemoryError(
+                "GPU out of memory during inference",
+                cause=e,
+                details={
+                    "device": str(self.device),
+                    "input_shape": str(poses.shape),
+                    "suggested_action": "Reduce batch size or use CPU"
+                }
+            )
+        except Exception as e:
+            context = create_error_context(
+                operation="model_inference",
+                input_shape=str(poses.shape),
+                device=str(self.device)
+            )
+            raise ModelInferenceError(
+                f"Inference failed: {e}",
+                cause=e,
+                context=context,
+                retryable=True,
+            )
+
+
+# ============================================================================
+# Example 5: API Server Integration
+# ============================================================================
+
+from kataforge.core.error_handling import (
+    AuthenticationError,
+    AuthorizationError,
+    RateLimitError,
+)
+
+try:
+    from fastapi import FastAPI, HTTPException, Request, Response
+    from fastapi.responses import JSONResponse
+    FASTAPI_AVAILABLE = True
+except ImportError:
+    FASTAPI_AVAILABLE = False
+
+
+if FASTAPI_AVAILABLE:
+    app = FastAPI()
+    
+    # Global exception handler for DojoManagerError
+    @app.exception_handler(DojoManagerError)
+    async def dojo_error_handler(request: Request, exc: DojoManagerError):
+        """Convert DojoManagerError to proper HTTP response"""
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.__class__.__name__,
+                "message": exc.user_message,
+                "details": exc.details,
+                "request_id": exc.context.request_id,
+            }
+        )
+    
+    @app.post("/analyze")
+    @handle_errors(max_retries=0)  # No retries for API endpoints
+    async def analyze_technique(
+        video_path: str,
+        user_id: str,
+        request: Request
+    ):
+        """API endpoint with error handling"""
+        
+        # Create context for this request
+        context = create_error_context(
+            operation="analyze_technique",
+            request_id=str(id(request)),
+            user_id=user_id,
+            endpoint="/analyze",
+            video_path=video_path
+        )
+        
+        # Check authentication (example)
+        if not user_id:
+            raise AuthenticationError(
+                "User ID required",
+                context=context
+            )
+        
+        # Check rate limit (example)
+        if _check_rate_limit(user_id):
+            raise RateLimitError(
+                f"Rate limit exceeded for user {user_id}",
+                retry_after=60,
+                context=context
+            )
+        
+        # Process video
+        preprocessor = VideoPreprocessor()
+        processed_data = preprocessor.preprocess_video(
+            video_path,
+            f"/tmp/processed_{user_id}.mp4"
+        )
+        
+        # Extract poses
+        extractor = MediaPipePoseExtractor()
+        poses = extractor.extract_from_video(video_path)
+        
+        # Assess form
+        assessor = FormAssessor("models/form_assessor.pt")
+        scores = assessor.assess(poses['poses'])
+        
+        return {
+            "status": "success",
+            "scores": scores,
+            "metadata": processed_data
+        }
+    
+    def _check_rate_limit(user_id: str) -> bool:
+        """Check if user has exceeded rate limit"""
+        # Implementation would check Redis or similar
+        return False
+
+
+# ============================================================================
+# Example 6: Batch Processing with Error Recovery
+# ============================================================================
+
+from typing import List
+
+
+class BatchProcessor:
+    """Process multiple items with error recovery"""
+    
+    def process_batch(
+        self,
+        video_paths: List[str],
+        continue_on_error: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Process batch of videos with error recovery
+        
+        Args:
+            video_paths: List of video paths to process
+            continue_on_error: Continue processing on individual errors
+        
+        Returns:
+            Results with success/failure breakdown
+        """
+        results = {
+            'successful': [],
+            'failed': [],
+            'total': len(video_paths),
+        }
+        
+        # Configure error handler for batch processing
+        config = ErrorHandlerConfig(
+            max_retries=2,
+            recovery_strategy=RecoveryStrategy.SKIP if continue_on_error else RecoveryStrategy.FAIL_FAST,
+            log_errors=True,
+        )
+        handler = ErrorHandler(config)
+        
+        for video_path in video_paths:
+            try:
+                # Process with error handling
+                result = self._process_single_video(video_path, handler)
+                results['successful'].append({
+                    'video_path': video_path,
+                    'result': result
+                })
+                
+            except DojoManagerError as e:
+                results['failed'].append({
+                    'video_path': video_path,
+                    'error': e.to_dict()
+                })
+                
+                if not continue_on_error:
+                    break
+        
+        return results
+    
+    def _process_single_video(
+        self,
+        video_path: str,
+        handler: ErrorHandler
+    ) -> Dict[str, Any]:
+        """Process single video with provided handler"""
+        
+        def process():
+            preprocessor = VideoPreprocessor()
+            return preprocessor.preprocess_video(
+                video_path,
+                f"/tmp/processed_{Path(video_path).stem}.mp4"
+            )
+        
+        return handler._execute_with_handling(process)
+
+
+# ============================================================================
+# Example 7: Error Monitoring and Reporting
+# ============================================================================
+
+from kataforge.core.error_handling import ErrorRegistry, ErrorReporter, ErrorSeverity
+
+
+class MonitoringService:
+    """Monitor and report on system errors"""
+    
+    @staticmethod
+    def get_health_status() -> Dict[str, Any]:
+        """Get system health based on error rates"""
+        stats = ErrorRegistry.get_error_stats()
+        
+        total_errors = stats.get('total', 0)
+        critical_errors = len(ErrorRegistry.get_errors_by_severity(ErrorSeverity.CRITICAL))
+        
+        # Determine health status
+        if critical_errors > 0:
+            status = "critical"
+        elif total_errors > 100:
+            status = "degraded"
+        elif total_errors > 10:
+            status = "warning"
+        else:
+            status = "healthy"
+        
+        return {
+            "status": status,
+            "total_errors": total_errors,
+            "critical_errors": critical_errors,
+            "error_stats": stats,
+        }
+    
+    @staticmethod
+    def export_error_report(filepath: str) -> None:
+        """Export detailed error report"""
+        ErrorReporter.export_report(filepath)
+        print(f"Error report exported to: {filepath}")
+    
+    @staticmethod
+    def print_summary() -> None:
+        """Print error summary to console"""
+        print(ErrorReporter.generate_summary())
+
+
+# ============================================================================
+# Example 8: Testing Error Handling
+# ============================================================================
+
+def test_error_handling():
+    """Test error handling system"""
+    
+    # Test 1: ValidationError
+    try:
+        raise ValidationError("Invalid input", field="test_field")
+    except ValidationError as e:
+        print(f"✓ ValidationError: {e.message}")
+        assert e.status_code == 400
+    
+    # Test 2: Retry logic
+    attempt_count = [0]
+    
+    @handle_errors(max_retries=3, recovery_strategy=RecoveryStrategy.RETRY)
+    def flaky_operation():
+        attempt_count[0] += 1
+        if attempt_count[0] < 3:
+            raise ProcessingError("Transient error", retryable=True)
+        return "success"
+    
+    result = flaky_operation()
+    print(f"✓ Retry logic: {attempt_count[0]} attempts, result: {result}")
+    assert attempt_count[0] == 3
+    
+    # Test 3: Fallback
+    @handle_errors(
+        fallback=lambda: "fallback_value",
+        recovery_strategy=RecoveryStrategy.FALLBACK
+    )
+    def failing_operation():
+        raise ComputationError(
+            "Computation failed",
+            recovery_strategy=RecoveryStrategy.FALLBACK
+        )
+    
+    result = failing_operation()
+    print(f"✓ Fallback: {result}")
+    assert result == "fallback_value"
+    
+    # Test 4: Error registry
+    stats = ErrorRegistry.get_error_stats()
+    print(f"✓ Error registry: {stats['total']} errors tracked")
+    
+    # Test 5: Error reporting
+    print("\n✓ Error Summary:")
+    MonitoringService.print_summary()
+
+
+if __name__ == "__main__":
+    test_error_handling()
