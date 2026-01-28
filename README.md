@@ -4,6 +4,8 @@
 
 Advanced AI-powered system for martial arts technique preservation, analysis, and coaching, with multi-GPU support (ROCm, CUDA, Vulkan).
 
+<img width="1280" height="640" alt="KataForge" src="https://github.com/user-attachments/assets/cae92414-eaa7-48af-af88-d1c7022d942b" />
+
 ## Quick Start
 
 1. Enter the development environment:
@@ -328,3 +330,4 @@ See `docs/TROUBLESHOOTING.md` or contact support@demod.llc for additional assist
 - Documentation: https://docs.demod.llc/kataforge
 
 Built for martial arts preservation and AI-assisted coaching.
+<img width="585" height="485" alt="demod-japan-alt" src="https://github.com/user-attachments/assets/d5086d24-8d27-4ffb-bcfd-e3a7007b629e" />
