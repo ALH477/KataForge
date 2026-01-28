@@ -1,0 +1,423 @@
+# Docker Compose for Dojo Manager
+#
+# Multi-service deployment with GPU profile support
+#
+# Usage:
+#   docker compose --profile cuda up      # NVIDIA GPU
+#   docker compose --profile rocm up      # AMD GPU (ROCm)
+#   docker compose --profile vulkan up    # Vulkan (Intel/AMD/older NVIDIA)
+#   docker compose --profile cpu up       # CPU only
+#
+# Build images first with Nix:
+#   nix build .#docker-cuda && docker load < result
+#   nix build .#docker-rocm && docker load < result
+#   nix build .#docker-vulkan && docker load < result
+#   nix build .#docker-cpu && docker load < result
+#   nix build .#docker-gradio-cuda && docker load < result
+#   # ... etc
+#
+# Or for full stack images:
+#   nix build .#docker-full-cuda && docker load < result
+
+version: "3.9"
+
+# =============================================================================
+# Common Configuration
+# =============================================================================
+
+x-common-env: &common-env
+  DOJO_ENVIRONMENT: production
+  DOJO_LOG_FORMAT: json
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+
+# =============================================================================
+# Services
+# =============================================================================
+
+services:
+  cli:
+    image: dojo-manager:latest
+    profiles: ["dev"]
+    command: poetry run dojo-manager ui
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+    environment:
+      - DOJO_ENVIRONMENT=development
+  piper-tts:
+    image: rhasspy/piper:latest
+    environment:
+      - PIPER_VOICE=en_US-amy-medium
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+    healthcheck:
+      test: curl -f http://localhost:5002/health || exit 1
+      interval: 30s
+
+  # ===========================================================================
+  # CUDA Profile (NVIDIA GPU)
+  # ===========================================================================
+
+  dojo-api-cuda:
+    image: dojo-manager:cuda
+    profiles: ["cuda"]
+    container_name: dojo-api-cuda
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      DOJO_API_HOST: "0.0.0.0"
+      DOJO_API_PORT: "8000"
+    volumes:
+      - dojo-data:/data
+      - dojo-models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  ollama-cuda:
+    image: ollama/ollama:latest
+    profiles: ["cuda"]
+    container_name: ollama-cuda
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+      OLLAMA_MODELS: /models
+    volumes:
+      - ollama-models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  gradio-cuda:
+    image: dojo-manager-ui:cuda
+    profiles: ["cuda"]
+    container_name: gradio-cuda
+    ports:
+      - "7860:7860"
+    environment:
+      GRADIO_SERVER_NAME: "0.0.0.0"
+      GRADIO_SERVER_PORT: "7860"
+      DOJO_API_URL: http://dojo-api-cuda:8000
+      DOJO_OLLAMA_URL: http://ollama-cuda:11434
+      DOJO_LLM_BACKEND: ollama
+    depends_on:
+      dojo-api-cuda:
+        condition: service_healthy
+      ollama-cuda:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # ROCm Profile (AMD GPU)
+  # ===========================================================================
+
+  dojo-api-rocm:
+    image: dojo-manager:rocm
+    profiles: ["rocm"]
+    container_name: dojo-api-rocm
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      DOJO_API_HOST: "0.0.0.0"
+      DOJO_API_PORT: "8000"
+      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
+      PYTORCH_ROCM_ARCH: ${PYTORCH_ROCM_ARCH:-gfx1100}
+    volumes:
+      - dojo-data:/data
+      - dojo-models:/models
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  ollama-rocm:
+    image: ollama/ollama:rocm
+    profiles: ["rocm"]
+    container_name: ollama-rocm
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
+    volumes:
+      - ollama-models:/root/.ollama
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  gradio-rocm:
+    image: dojo-manager-ui:rocm
+    profiles: ["rocm"]
+    container_name: gradio-rocm
+    ports:
+      - "7860:7860"
+    environment:
+      GRADIO_SERVER_NAME: "0.0.0.0"
+      GRADIO_SERVER_PORT: "7860"
+      DOJO_API_URL: http://dojo-api-rocm:8000
+      DOJO_OLLAMA_URL: http://ollama-rocm:11434
+      DOJO_LLM_BACKEND: ollama
+    depends_on:
+      dojo-api-rocm:
+        condition: service_healthy
+      ollama-rocm:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Vulkan Profile (llama.cpp with Vulkan backend)
+  # ===========================================================================
+
+  dojo-api-vulkan:
+    image: dojo-manager:vulkan
+    profiles: ["vulkan"]
+    container_name: dojo-api-vulkan
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      DOJO_API_HOST: "0.0.0.0"
+      DOJO_API_PORT: "8000"
+    volumes:
+      - dojo-data:/data
+      - dojo-models:/models
+    devices:
+      - /dev/dri
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  # llama.cpp server with Vulkan backend (instead of Ollama)
+  llama-cpp-vulkan:
+    image: dojo-manager-llama-cpp:vulkan
+    profiles: ["vulkan"]
+    container_name: llama-cpp-vulkan
+    ports:
+      - "11434:8080"  # Map to standard port for compatibility
+    environment:
+      LLAMA_ARG_HOST: "0.0.0.0"
+      LLAMA_ARG_PORT: "8080"
+      LLAMA_ARG_N_GPU_LAYERS: "999"
+    volumes:
+      - llama-models:/models
+    devices:
+      - /dev/dri
+    command: >
+      --model /models/llava-v1.5-7b-q4_k.gguf
+      --mmproj /models/mmproj-model-f16.gguf
+      --host 0.0.0.0
+      --port 8080
+      --n-gpu-layers 999
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  gradio-vulkan:
+    image: dojo-manager-ui:vulkan
+    profiles: ["vulkan"]
+    container_name: gradio-vulkan
+    ports:
+      - "7860:7860"
+    environment:
+      GRADIO_SERVER_NAME: "0.0.0.0"
+      GRADIO_SERVER_PORT: "7860"
+      DOJO_API_URL: http://dojo-api-vulkan:8000
+      DOJO_OLLAMA_URL: http://llama-cpp-vulkan:8080
+      DOJO_LLM_BACKEND: llamacpp
+    depends_on:
+      dojo-api-vulkan:
+        condition: service_healthy
+      llama-cpp-vulkan:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # CPU Profile (No GPU)
+  # ===========================================================================
+
+  dojo-api-cpu:
+    image: dojo-manager:cpu
+    profiles: ["cpu"]
+    container_name: dojo-api-cpu
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      DOJO_API_HOST: "0.0.0.0"
+      DOJO_API_PORT: "8000"
+    volumes:
+      - dojo-data:/data
+      - dojo-models:/models
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  ollama-cpu:
+    image: ollama/ollama:latest
+    profiles: ["cpu"]
+    container_name: ollama-cpu
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  gradio-cpu:
+    image: dojo-manager-ui:cpu
+    profiles: ["cpu"]
+    container_name: gradio-cpu
+    ports:
+      - "7860:7860"
+    environment:
+      GRADIO_SERVER_NAME: "0.0.0.0"
+      GRADIO_SERVER_PORT: "7860"
+      DOJO_API_URL: http://dojo-api-cpu:8000
+      DOJO_OLLAMA_URL: http://ollama-cpu:11434
+      DOJO_LLM_BACKEND: ollama
+    depends_on:
+      dojo-api-cpu:
+        condition: service_healthy
+      ollama-cpu:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
+    networks:
+      - dojo-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # TODO: Redis for caching and task queuing
+  # ===========================================================================
+  # Uncomment when implementing background processing
+  #
+  # redis:
+  #   image: redis:7-alpine
+  #   profiles: ["cuda", "rocm", "vulkan", "cpu"]
+  #   container_name: dojo-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   command: redis-server --appendonly yes
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
+  #   networks:
+  #     - dojo-network
+  #   restart: unless-stopped
+
+# =============================================================================
+# Networks
+# =============================================================================
+
+networks:
+  dojo-network:
+    driver: bridge
+    name: dojo-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+
+volumes:
+  dojo-data:
+    driver: local
+    name: dojo-data
+  dojo-models:
+    driver: local
+    name: dojo-models
+  ollama-models:
+    driver: local
+    name: ollama-models
+  llama-models:
+    driver: local
+    name: llama-models
+  # redis-data:
+  #   driver: local
+  #   name: dojo-redis-data

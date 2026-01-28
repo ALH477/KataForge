@@ -1,0 +1,26 @@
+# Caddyfile
+
+{
+    auto_https on_demand tls admin@demod.ai
+    email security@demod.ai
+}
+
+# Global options
+:80,:443 {
+    encode gzip zstd
+    reverse_proxy * dojo-api:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+    }
+}
+
+# Static assets
+dojo-ui.demod.ai {
+    root * /app/static
+    file_server
+}
+
+# Security headers
+@security {
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+}
