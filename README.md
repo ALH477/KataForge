@@ -4,7 +4,7 @@
 
 Advanced AI-powered system for martial arts technique preservation, analysis, and coaching, with multi-GPU support (ROCm, CUDA, Vulkan).
 
-(DISCLAIMER!!!!!!!!!!!! NOT OPEN SOURCE! source avaliable)
+# (DISCLAIMER!!!!!!!!!!!! NOT OPEN SOURCE! source avaliable) #
 
 ## Quick Start
 
