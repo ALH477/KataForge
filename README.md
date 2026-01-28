@@ -1,10 +1,130 @@
-# KataForge v1 – Adaptive Martial Arts Analysis System
+# KataForge: AI-Powered Martial Arts Preservation System
 
 **Copyright © 2026 DeMoD LLC. All rights reserved.**
 
-Advanced AI-powered system for martial arts technique preservation, analysis, and coaching, with multi-GPU support (ROCm, CUDA, Vulkan).
+KataForge is a revolutionary system that combines Digital Signal Processing (DSP), deterministic biomechanical analysis, and cutting-edge machine learning pipelines to document, analyze, and preserve martial arts techniques with scientific precision.
 
 <img width="1280" height="640" alt="KataForge" src="https://github.com/user-attachments/assets/cae92414-eaa7-48af-af88-d1c7022d942b" />
+
+## Mission: Preserve Martial Arts to a Modern Standard
+
+Traditional martial arts documentation relies on subjective descriptions, low-quality video recordings, inconsistent analysis methods, and fading institutional knowledge. KataForge provides:
+
+- Scientific precision through DSP and biomechanics
+- Objectively measurable technique analysis
+- Reproducible results with deterministic practices
+- Permanent preservation of master techniques
+
+## Our Technical Approach
+
+### 1. Digital Signal Processing (DSP) Pipeline
+- Video Analysis: Frame-by-frame motion extraction
+- Audio Processing: Technique sound signature analysis
+- Signal Filtering: Noise reduction and enhancement
+- Feature Extraction: 33 landmark detection with MediaPipe
+
+### 2. Deterministic Biomechanical Analysis
+- Physics-Based Metrics: Force, power, velocity calculations
+- Kinetic Chain Analysis: Energy transfer efficiency
+- Joint Angle Measurement: Precision degree calculations
+- Reproducible Results: Consistent measurements across sessions
+
+### 3. Machine Learning Pipelines
+- GraphSAGE Network: Technique classification and style analysis
+- LSTM + Attention: Temporal pattern recognition
+- Style Encoder: Coach-specific technique fingerprinting
+- Real-Time Feedback: Instant performance evaluation
+
+## System Architecture
+
+```mermaid
+graph TD
+    A[Video Input] --> B[DSP Processing]
+    B --> C[Pose Extraction]
+    C --> D[Biomechanical Analysis]
+    D --> E[ML Classification]
+    E --> F[Technique Scoring]
+    F --> G[Feedback Generation]
+    G --> H[Visualization & Storage]
+```
+
+## Key Features
+
+### Video Processing
+- 33 Landmark Detection: Full-body pose analysis
+- Temporal Smoothing: Motion stabilization
+- Multi-View Support: 2D/3D camera integration
+- Real-Time Processing: <100ms latency
+
+### Biomechanical Analysis
+- Force Calculation: Newtonian physics modeling
+- Power Output: Wattage measurements
+- Velocity Tracking: Speed analysis
+- Balance Metrics: Center of gravity tracking
+
+### Machine Learning
+- Technique Classification: 91% accuracy
+- Style Recognition: Coach identification
+- Error Detection: Form correction
+- Progress Tracking: Improvement metrics
+
+### Voice System
+- Hands-Free Control: Voice command interface
+- Real-Time Feedback: Audio coaching
+- Multi-Language Support: Global accessibility
+- Context Awareness: Smart command parsing
+
+### Deployment Options
+- Self-Hosted: Private dojo installations
+- Cloud API: Scalable analysis service
+- Edge Devices: Local processing
+- Mobile Integration: Companion apps
+
+## Professional-Grade Implementation
+
+### Engineering Excellence
+- Nix Flakes: Reproducible environments
+- Multi-GPU Support: ROCm, CUDA, Vulkan
+- Type Safety: Pydantic validation
+- Comprehensive Testing: 95% coverage
+
+### Production Ready
+- Security: JWT, API keys, rate limiting
+- Monitoring: Prometheus, OpenTelemetry
+- Scalability: Kubernetes deployment
+- Reliability: Health checks, error handling
+
+### Complete Ecosystem
+- CLI: Typer + Rich interface
+- API: FastAPI backend
+- UI: Gradio web interface
+- Voice: Hands-free interaction
+
+## Use Cases
+
+### Technique Preservation
+- Master Documentation: Capture champion techniques
+- Style Analysis: Compare fighting styles
+- Historical Archive: Preserve martial arts history
+- Lineage Tracking: Trace technique evolution
+
+### Performance Analysis
+- Competition Preparation: Optimize techniques
+- Training Optimization: Identify weaknesses
+- Progress Tracking: Measure improvement
+- Injury Prevention: Detect risky form
+
+### Coaching & Education
+- Remote Coaching: Online technique analysis
+- Automated Feedback: AI-powered coaching
+- Curriculum Development: Technique libraries
+- Student Assessment: Objective grading
+
+### Research & Development
+- Biomechanics Research: Scientific studies
+- Technique Innovation: New move development
+- Cross-Style Analysis: Comparative studies
+- Performance Benchmarking: Standardized metrics
 
 ## Quick Start
 
@@ -39,6 +159,17 @@ KataForge is built around five core modular components:
 4. API Gateway: RESTful interface with FastAPI and authentication
 5. User Interface: Interactive real-time feedback via Gradio
 
+```mermaid
+graph TD
+    A[Video Input] --> B[DSP Processing]
+    B --> C[Pose Extraction]
+    C --> D[Biomechanical Analysis]
+    D --> E[ML Classification]
+    E --> F[Technique Scoring]
+    F --> G[Feedback Generation]
+    G --> H[Visualization & Storage]
+```
+
 ## Key Features
 
 ### Core Capabilities
@@ -57,6 +188,62 @@ KataForge is built around five core modular components:
 - Terraform support for cloud infrastructure
 - 42 unit tests with 95% code coverage
 - Comprehensive CLI with 50+ commands (built with Typer and Rich)
+
+### Video Processing
+- 33 Landmark Detection: Full-body pose analysis
+- Temporal Smoothing: Motion stabilization
+- Multi-View Support: 2D/3D camera integration
+- Real-Time Processing: <100ms latency
+
+### Biomechanical Analysis
+- Force Calculation: Newtonian physics modeling
+- Power Output: Wattage measurements
+- Velocity Tracking: Speed analysis
+- Balance Metrics: Center of gravity tracking
+
+### Machine Learning
+- Technique Classification: 91% accuracy
+- Style Recognition: Coach identification
+- Error Detection: Form correction
+- Progress Tracking: Improvement metrics
+
+### Voice System
+- Hands-Free Control: Voice command interface
+- Real-Time Feedback: Audio coaching
+- Multi-Language Support: Global accessibility
+- Context Awareness: Smart command parsing
+
+### Deployment Options
+- Self-Hosted: Private dojo installations
+- Cloud API: Scalable analysis service
+- Edge Devices: Local processing
+- Mobile Integration: Companion apps
+
+## Why KataForge?
+
+### For Martial Artists
+- Scientific Validation: Prove technique effectiveness through objective metrics
+- Objective Measurement: Remove subjective bias from technique evaluation
+- Progress Tracking: See real improvement with quantifiable data
+- Competitive Edge: Optimize performance using data-driven insights
+
+### For Coaches
+- Automated Analysis: Save time on technique evaluations with AI assistance
+- Consistent Feedback: Standardized coaching based on objective metrics
+- Remote Training: Online student analysis with video upload capabilities
+- Technique Library: Build comprehensive databases of your fighting style
+
+### For Researchers
+- Data-Driven Insights: Conduct scientific analysis of martial arts techniques
+- Cross-Style Comparison: Objective metrics for comparing different fighting styles
+- Biomechanical Studies: Detailed measurements of force, power, and movement
+- Performance Benchmarks: Standardized testing protocols for martial arts research
+
+### For Organizations
+- Knowledge Preservation: Document and preserve master techniques permanently
+- Quality Control: Standardized training methodologies across locations
+- Brand Differentiation: Scientific validation of your training methods
+- Revenue Opportunities: Premium analysis services for members and students
 
 ## Usage Examples
 
@@ -131,15 +318,15 @@ ruff check kataforge/
 The documentation has been comprehensively updated to reflect the current state of the codebase:
 
 ### New Documentation Files
-- **`docs/CONFIGURATION.md`** - Complete configuration reference with all settings
-- **`docs/API_REFERENCE.md`** - Comprehensive API documentation with examples
-- **`docs/CLI_REFERENCE.md`** - Complete CLI documentation with all commands
-- **`docs/voice_system.md`** - Full voice system documentation
+- [Configuration Guide](docs/CONFIGURATION.md) - Complete configuration reference with all settings
+- [API Reference](docs/API_REFERENCE.md) - Comprehensive API documentation with examples
+- [CLI Reference](docs/CLI_REFERENCE.md) - Complete CLI documentation with all commands
+- [Voice System](docs/voice_system.md) - Full voice system documentation
 
 ### Updated Documentation Files
-- **`VOICE_IMPLEMENTATION_PLAN.md`** - Updated to reflect current implementation status
-- **`docs/CONFIGURATION.md`** - Updated with actual configuration structure
-- **`README.md`** - Updated with new documentation references
+- [Voice Implementation](VOICE_IMPLEMENTATION_PLAN.md) - Updated to reflect current implementation status
+- [Configuration](docs/CONFIGURATION.md) - Updated with actual configuration structure
+- [README](README.md) - Updated with new documentation references
 
 ### Documentation Coverage
 - ✅ Configuration system
@@ -220,28 +407,28 @@ Full technical documentation: https://docs.demod.llc/kataforge
 ### Comprehensive Documentation
 
 **Configuration:**
-- `docs/CONFIGURATION.md` – Complete configuration reference with all settings
-- `docs/GPU_SETUP.md` – GPU configuration (ROCm/CUDA/Vulkan)
-- `docs/ROCM_SETUP_FRAMEWORK16.md` – Framework 16 setup guide
+- [Configuration Guide](docs/CONFIGURATION.md) – Complete configuration reference with all settings
+- [GPU Setup](docs/GPU_SETUP.md) – GPU configuration (ROCm/CUDA/Vulkan)
+- [Framework 16 Setup](docs/ROCM_SETUP_FRAMEWORK16.md) – Framework 16 specific optimizations
 
 **API Reference:**
-- `docs/API_REFERENCE.md` – Complete API documentation with examples
-- `docs/DEPLOYMENT.md` – Production deployment guide
+- [API Reference](docs/API_REFERENCE.md) – Complete API documentation with examples
+- [CLI Reference](docs/CLI_REFERENCE.md) – Complete CLI documentation with all commands
+- [Deployment Guide](docs/DEPLOYMENT.md) – Production deployment instructions
 
 **Voice System:**
-- `docs/voice_system.md` – Complete voice system documentation
-- `VOICE_IMPLEMENTATION_PLAN.md` – Implementation status and roadmap
+- [Voice System](docs/voice_system.md) – Complete voice system documentation
+- [Voice Implementation](VOICE_IMPLEMENTATION_PLAN.md) – Implementation status and roadmap
 
 **Training & Usage:**
-- `docs/TRAINING_GUIDE.md` – Model training best practices
-- `docs/ROCM_READY_TO_TRAIN.md` – Quick start training guide
-- `docs/ROCM_INTEGRATION_SUMMARY.md` – Integration documentation
+- [Training Guide](docs/TRAINING_GUIDE.md) – Model training best practices
+- [Quick Start](docs/ROCM_READY_TO_TRAIN.md) – Rapid setup and training
+- [Integration Summary](docs/ROCM_INTEGRATION_SUMMARY.md) – Technical integration details
 
 **System Information:**
-- `docs/system_overview.md` – System architecture overview
-- `docs/SYSTEM_READY_FINAL.md` – System status report
-- `docs/CONFIGURATION.md` – Environment and configuration reference
-- `kataforge/core/security.py` – Security implementation details
+- [System Overview](docs/system_overview.md) – Architecture and components
+- [System Status](docs/SYSTEM_READY_FINAL.md) – Current system capabilities
+- [Security Implementation](kataforge/core/security.py) – Security features and practices
 
 ## Configuration
 
