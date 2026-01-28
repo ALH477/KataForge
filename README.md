@@ -451,7 +451,7 @@ export DOJO_TEXT_MODEL=mistral:7b
 
 # GPU (auto-detected; override if needed)
 export DOJO_DEVICE=cuda                 # cpu / cuda / rocm / vulkan
-export HSA_OVERRIDE_GFX_VERSION=11.0.0  # ROCm only
+export HSA_OVERRIDE_GFX_VERSION=11.0.2  # ROCm only
 export PYTORCH_ROCM_ARCH=gfx1100        # ROCm only
 ```
 
