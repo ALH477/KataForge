@@ -288,7 +288,7 @@ It prohibits:
 
 Full license text: [LICENSE](./LICENSE)
 
-For commercial hosted offerings, integrations, exceptions, or questions, contact: licensing@demod.llc
+For commercial hosted offerings, integrations, exceptions, or questions, contact: alh477@demod.ltd
 
 Contributions (bug fixes, GPU improvements, technique additions with verified data ownership) are welcome via pull requests.
 
