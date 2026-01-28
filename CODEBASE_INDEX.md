@@ -503,7 +503,35 @@ Comprehensive configuration with:
 
 ### docs/
 
-Complete documentation suite (200+ pages total):
+Complete documentation suite with comprehensive coverage:
+
+#### `CONFIGURATION.md` (Updated)
+- Complete configuration reference
+- Environment variables and settings
+- Profile management
+- Configuration validation
+- Best practices and examples
+
+#### `API_REFERENCE.md` (New)
+- Complete API documentation
+- All endpoints with examples
+- Authentication methods
+- Error handling reference
+- API client examples
+
+#### `CLI_REFERENCE.md` (New)
+- Complete CLI documentation
+- All commands with options
+- Usage examples
+- Advanced workflows
+- Troubleshooting guide
+
+#### `voice_system.md` (New)
+- Complete voice system documentation
+- Architecture and components
+- STT/TTS provider details
+- Configuration and usage
+- Integration examples
 
 #### `ROCM_SETUP_FRAMEWORK16.md` (50 pages)
 - System requirements
@@ -540,6 +568,24 @@ Complete documentation suite (200+ pages total):
 - Validation results
 - Performance expectations
 - Checklist
+
+#### `GPU_SETUP.md`
+- GPU configuration guide
+- ROCm, CUDA, Vulkan setup
+- Environment variables
+- Nix flake configuration
+
+#### `CONFIGURATION.md`
+- Configuration system reference
+- Settings and profiles
+- Environment variables
+- Validation and best practices
+
+#### `system_overview.md`
+- System architecture overview
+- Key components
+- Use cases
+- Technical foundation
 
 ---
 

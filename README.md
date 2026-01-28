@@ -126,6 +126,31 @@ ruff check kataforge/
 - 18 integration tests (CLI + API)  
 - 5 end-to-end workflow scenarios
 
+## Documentation Updates
+
+The documentation has been comprehensively updated to reflect the current state of the codebase:
+
+### New Documentation Files
+- **`docs/CONFIGURATION.md`** - Complete configuration reference with all settings
+- **`docs/API_REFERENCE.md`** - Comprehensive API documentation with examples
+- **`docs/CLI_REFERENCE.md`** - Complete CLI documentation with all commands
+- **`docs/voice_system.md`** - Full voice system documentation
+
+### Updated Documentation Files
+- **`VOICE_IMPLEMENTATION_PLAN.md`** - Updated to reflect current implementation status
+- **`docs/CONFIGURATION.md`** - Updated with actual configuration structure
+- **`README.md`** - Updated with new documentation references
+
+### Documentation Coverage
+- ✅ Configuration system
+- ✅ API reference
+- ✅ CLI reference
+- ✅ Voice system
+- ✅ GPU setup
+- ✅ System architecture
+- ✅ Usage examples
+- ✅ Troubleshooting guides
+
 ## Docker Deployment
 
 ### Building Images
@@ -192,13 +217,30 @@ Training times on high-end GPUs (AMD RX 7700S / NVIDIA RTX 3090):
 
 Full technical documentation: https://docs.demod.llc/kataforge
 
-Key documents:
+### Comprehensive Documentation
+
+**Configuration:**
+- `docs/CONFIGURATION.md` – Complete configuration reference with all settings
 - `docs/GPU_SETUP.md` – GPU configuration (ROCm/CUDA/Vulkan)
 - `docs/ROCM_SETUP_FRAMEWORK16.md` – Framework 16 setup guide
+
+**API Reference:**
+- `docs/API_REFERENCE.md` – Complete API documentation with examples
+- `docs/DEPLOYMENT.md` – Production deployment guide
+
+**Voice System:**
+- `docs/voice_system.md` – Complete voice system documentation
+- `VOICE_IMPLEMENTATION_PLAN.md` – Implementation status and roadmap
+
+**Training & Usage:**
 - `docs/TRAINING_GUIDE.md` – Model training best practices
-- `docs/DEPLOYMENT.md` – Production deployment
+- `docs/ROCM_READY_TO_TRAIN.md` – Quick start training guide
+- `docs/ROCM_INTEGRATION_SUMMARY.md` – Integration documentation
+
+**System Information:**
+- `docs/system_overview.md` – System architecture overview
+- `docs/SYSTEM_READY_FINAL.md` – System status report
 - `docs/CONFIGURATION.md` – Environment and configuration reference
-- `docs/SECURITY.md` – Security practices
 - `kataforge/core/security.py` – Security implementation details
 
 ## Configuration
