@@ -1,5 +1,7 @@
 # KataForge: AI-Powered Martial Arts Preservation System
 
+## To protect a soft heart, you must carry it within hard hands. ##
+
 **Copyright © 2026 DeMoD LLC. All rights reserved.**
 
 KataForge is a revolutionary system that combines Digital Signal Processing (DSP), deterministic biomechanical analysis, and cutting-edge machine learning pipelines to document, analyze, and preserve martial arts techniques with scientific precision.
