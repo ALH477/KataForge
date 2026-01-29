@@ -2,7 +2,7 @@
 
 ## To protect a soft heart, you must carry it within hard hands. ##
 
-https://hub.docker.com/repository/docker/alh477/kataforge/general
+https://hub.docker.com/repository/docker/alh477/kataforge
 
 **Copyright © 2026 DeMoD LLC. All rights reserved.**
 
